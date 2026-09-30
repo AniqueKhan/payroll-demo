@@ -1,3 +1,11 @@
+# Custom
+migrations
+environment.py
+media
+*.sqlite3
+.vscode
+logs
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
