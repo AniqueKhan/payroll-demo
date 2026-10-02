@@ -224,3 +224,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Generated demo inputs
+core/demo_data/output/*
+!core/demo_data/output/.gitkeep
