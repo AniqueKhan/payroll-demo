@@ -7,7 +7,7 @@
     </span>
   </header>
   <p class="exc-meta">
-    {% if x.employee %}<a href="{% url 'core:employee' run.pk x.employee.employee_id %}">{{ x.employee.name }}</a> <span class="muted">{{ x.employee.employee_id }}</span>{% else %}<span class="muted">All employees</span>{% endif %}
+    {% if x.employee %}<a href="{% url 'core:employee' x.employee.employee_id %}">{{ x.employee.name }}</a> <span class="muted">{{ x.employee.employee_id }}</span>{% else %}<span class="muted">All employees</span>{% endif %}
     {% if x.location %} · Store {{ x.location.code }}{% endif %}
     {% if x.date %} · {{ x.date|date:"D M j" }}{% endif %}
   </p>
@@ -19,7 +19,7 @@
     <summary>Raw rows involved ({{ item.rows|length }})</summary>
     <ul class="rawlist">
       {% for r in item.rows %}
-        <li><a href="{% url 'core:inputs' run.pk %}#row-{{ r.location }}-{{ r.number }}">Store {{ r.location }} row {{ r.number }}</a>:
+        <li><a href="{% url 'core:inputs' %}#row-{{ r.location }}-{{ r.number }}">Store {{ r.location }} row {{ r.number }}</a>:
           {% if r.raw %}<code>{% for k, v in r.raw.raw.items %}{{ k }}={{ v|default:"(empty)" }}{% if not forloop.last %}, {% endif %}{% endfor %}</code>{% endif %}
         </li>
       {% endfor %}
@@ -30,7 +30,7 @@
   {% if x.severity == "blocking" %}
     <p class="callout callout-red">Cannot be approved. Fix it at the input (for example, import the missing file), then re-run payroll.</p>
   {% elif x.severity == "needs_review" and x.status == "open" and not is_final %}
-    <form class="decide" method="post" action="{% url 'core:decide' run.pk %}">
+    <form class="decide" method="post" action="{% url 'core:decide' %}">
       {% csrf_token %}
       <input type="hidden" name="exception_key" value="{{ x.exception_key }}">
       <div class="fields">
@@ -74,7 +74,7 @@
       </p>
       {% if item.decision.note %}<p class="muted">Note: {{ item.decision.note }}</p>{% endif %}
       {% if not is_final %}
-      <form method="post" action="{% url 'core:undo' run.pk %}">
+      <form method="post" action="{% url 'core:undo' %}">
         {% csrf_token %}
         <input type="hidden" name="exception_key" value="{{ x.exception_key }}">
         <button class="btn btn-link" type="submit">Undo</button>

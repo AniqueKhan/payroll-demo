@@ -10,6 +10,7 @@
     Every decision re-runs payroll and is kept with the period, so it survives re-runs.
   </p>
 </section>
+{% include "core/_sandbox_bar.html" %}
 
 {% for key, title, help, items in sections %}
 <section class="queue-section" id="{{ key }}">
@@ -32,7 +33,7 @@
 
 {% if decision_count and not is_final %}
 <section class="card reset">
-  <form method="post" action="{% url 'core:clear_decisions' run.pk %}">
+  <form method="post" action="{% url 'core:clear_decisions' %}">
     {% csrf_token %}
     <button class="btn btn-secondary" type="submit">Reset all decisions</button>
     <span class="muted small">Deletes all {{ decision_count }} decision{{ decision_count|pluralize }} and re-runs payroll.</span>

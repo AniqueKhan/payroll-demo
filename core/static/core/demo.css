@@ -40,6 +40,11 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospac
 .run-meta { display: flex; align-items: center; gap: 10px; font-size: .9rem; }
 .status { padding: 2px 10px; border-radius: 999px; font-weight: 500; font-size: .8rem; }
 .status-draft { background: var(--amber-soft); color: var(--amber); border: 1px solid var(--amber-line); }
+.status-copy { background: var(--accent-soft); color: var(--accent-dark); border: 1px solid #b8dcea; }
+.status-clean { background: var(--grey-soft); color: var(--grey); border: 1px solid var(--line); }
+.sandbox-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; background: var(--card); border: 1px dashed #c5cfd8; border-radius: var(--radius); padding: 12px 18px; margin-bottom: 20px; }
+.sandbox-bar p { margin: 0; }
+.sandbox-bar.sandbox-on { border: 1px solid #b8dcea; background: var(--accent-soft); }
 .status-final { background: var(--green-soft); color: var(--green); border: 1px solid #9fd3b0; }
 .nav { display: flex; gap: 4px; overflow-x: auto; }
 .nav a { padding: 10px 14px; text-decoration: none; color: var(--muted); border-bottom: 3px solid transparent; white-space: nowrap; font-weight: 500; }

@@ -10,7 +10,7 @@
 <section class="card">
   <p class="small muted">
     Deductions = penalties + loans and advances + custom deductions. Absence deductions are already taken out of gross.
-    {% if sort == "gross" %}<a href="{% url 'core:payroll' run.pk %}">Sort by employee</a>{% else %}<a href="?sort=gross">Sort by gross</a>{% endif %}
+    {% if sort == "gross" %}<a href="{% url 'core:payroll' %}">Sort by employee</a>{% else %}<a href="?sort=gross">Sort by gross</a>{% endif %}
   </p>
   <div class="table-wrap">
     <table class="payroll">
@@ -26,7 +26,7 @@
       {% for line in lines %}
         {% with emp=line.employee marker=markers|get:line.employee.employee_id %}
         <tr class="clickable">
-          <td><a class="rowlink" href="{% url 'core:employee' run.pk emp.employee_id %}">{{ emp.name }}</a> <span class="muted small">{{ emp.employee_id }}</span></td>
+          <td><a class="rowlink" href="{% url 'core:employee' emp.employee_id %}">{{ emp.name }}</a> <span class="muted small">{{ emp.employee_id }}</span></td>
           <td>Store {{ emp.home_location.code }}</td>
           <td>{{ emp.get_pay_type_display }}</td>
           <td class="num">{{ line.regular_hours|hours }}</td>

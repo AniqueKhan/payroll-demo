@@ -2,7 +2,7 @@
 {% load payroll_ui %}
 {% block title %}{{ employee.name }}{% endblock %}
 {% block content %}
-<p class="crumbs"><a href="{% url 'core:payroll' run.pk %}">← Payroll</a></p>
+<p class="crumbs"><a href="{% url 'core:payroll' %}">← Payroll</a></p>
 <section class="intro">
   <h1>{{ employee.name }} <span class="muted">{{ employee.employee_id }}</span></h1>
   <p class="lead">
@@ -78,7 +78,7 @@
         {% for e in employee_exceptions %}
           <li>
             <span class="pill pill-{{ e.record.severity }}{% if e.record.severity == 'needs_review' and e.record.status != 'open' %} pill-approved{% endif %}">{% if e.record.severity == 'needs_review' and e.record.status != 'open' %}Approved{% else %}{{ e.record.severity|severity_label }}{% endif %}</span>
-            <a href="{% url 'core:exceptions' run.pk %}#{{ e.anchor }}">{{ e.title }}</a>
+            <a href="{% url 'core:exceptions' %}#{{ e.anchor }}">{{ e.title }}</a>
             {% if e.record.date %}<span class="muted small">{{ e.record.date|date:"M j" }}</span>{% endif %}
           </li>
         {% endfor %}

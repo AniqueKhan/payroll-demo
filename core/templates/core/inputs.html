@@ -23,7 +23,7 @@
   {% if s.missing %}
     <p class="callout callout-red"><span class="pill pill-blocking">Blocking</span>
       No file received for this period. Nothing is estimated.
-      <a href="{% url 'core:exceptions' run.pk %}#blocking">See the exception →</a></p>
+      <a href="{% url 'core:exceptions' %}#blocking">See the exception →</a></p>
   {% else %}
     <p class="muted small">
       Format <code>{{ s.location.export_format }}</code> · file <code>{{ s.batch.basename }}</code> ·
@@ -49,7 +49,7 @@
             <td>
               {% if r.error %}<span class="tag tag-red">malformed row</span>{% endif %}
               {% for ref in r.refs %}
-                <a class="ref" href="{% url 'core:exceptions' run.pk %}#{{ ref.anchor }}"><span class="pill pill-{{ ref.record.severity }}{% if ref.record.status == 'approved' %} pill-approved{% endif %}">{{ ref.record.severity|severity_label }}</span> {{ ref.title }}</a>
+                <a class="ref" href="{% url 'core:exceptions' %}#{{ ref.anchor }}"><span class="pill pill-{{ ref.record.severity }}{% if ref.record.status == 'approved' %} pill-approved{% endif %}">{{ ref.record.severity|severity_label }}</span> {{ ref.title }}</a>
               {% endfor %}
             </td>
           </tr>

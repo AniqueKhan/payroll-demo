@@ -33,6 +33,15 @@ The demo story:
 4. Totals update after every decision.
 5. **Finalize** becomes available once nothing is open. **Reopen** puts the run back to draft so you can walk through it again.
 
+## Per-visitor sandboxes
+
+- **The baseline.** The seeded run (`PayrollRun.sandbox = NULL`) is the baseline, and the web never changes it. Inputs are shared and read-only: locations, employees, schedules, raw rows, leaves, add-ons and loans.
+- **When a sandbox is created.** A visitor's first action (any POST) creates a `DemoSandbox`. That visitor's run and decisions belong to it. Its id lives in the Django session under `sandbox_id`. Visitors who only browse, and crawlers, never create one; they see the baseline, with the review forms visible.
+- **No run ids in URLs.** Pages are `/`, `/inputs/`, `/exceptions/`, `/payroll/` and `/employees/<id>/`. Each one resolves the visitor's own run from the session. Old `/runs/<id>/...` links redirect to the matching page, and the id is ignored.
+- **Start over.** This button, on the overview and the queue, deletes the visitor's sandbox and returns them to the clean demo. A session that points to a deleted sandbox is simply treated as a new visitor.
+- **Loan balances.** Finalizing in a sandbox does not post loan deductions, because loan balances are shared inputs. Only the baseline (`services.finalize(period)`) posts them.
+- **Cleanup.** `python manage.py cleanup_sandboxes --older-than-hours 24` deletes stale sandboxes, along with their runs, lines, exceptions and decisions. `seed_demo` deletes all sandboxes before reseeding.
+
 ## Layout
 
 | Path | What it does |
@@ -45,7 +54,8 @@ The demo story:
 | `engine/run.py` | `run_payroll(inputs, rules, adjustments)` orchestrator |
 | `rules/demo_rules.yaml` | Every threshold, rate and penalty |
 | `demo_data/generator.py` | Seeded generator. Writes the inputs and `scenario_manifest.json` |
-| `services.py` | ORM-to-engine bridge: `run_payroll`, `decide`, `undo_decision`, `clear_decisions`, `finalize`, `reopen` |
+| `services.py` | ORM-to-engine bridge: `run_payroll`, `decide`, `undo_decision`, `clear_decisions`, `finalize`, `reopen`, each taking `sandbox` (None = baseline) |
+| `sandbox.py` | Session helpers: `get_sandbox(request, create=False)`, `current_run(request, period)` |
 | `views.py`, `templates/core/`, `static/core/demo.css` | The demo screens: plain Django templates, one stylesheet, a little vanilla JS |
 
 ## Pay calculation

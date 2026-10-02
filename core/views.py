@@ -1,8 +1,9 @@
 """Demo screens: overview, raw inputs, review queue, payroll and one employee's calculation.
 
-No login. One shared payroll run. Every POST re-runs payroll, so run ids change; a request for
-a run that no longer exists is sent to the same page of the latest run.
+No login, no run ids in URLs. Each visitor sees the shared baseline run until their first action (a POST),
+which creates their private sandbox; from then on every page shows their own run. See ``core.sandbox``.
 """
+import re
 from collections import defaultdict
 from decimal import Decimal
 from functools import wraps
@@ -16,6 +17,7 @@ from django.views.decorators.http import require_POST
 from . import models as m
 from . import services
 from .engine.config import DEFAULT_RULES_PATH, load_rules
+from .sandbox import current_run, forget_sandbox, get_sandbox
 from .templatetags.payroll_ui import code_title
 
 SEVERITY_RANK = {"blocking": 0, "needs_review": 1, "info": 2}
@@ -27,17 +29,13 @@ def anchor(key: str) -> str:
 
 
 def with_run(view):
-    """Resolve ``run_id``; a stale id (the run was replaced by a re-run) goes to the latest run."""
+    """Resolve the visitor's run: their sandbox run if they have one, otherwise the baseline."""
     @wraps(view)
-    def wrapper(request, run_id, **kwargs):
-        run = m.PayrollRun.objects.select_related("period").filter(pk=run_id).first()
+    def wrapper(request, **kwargs):
+        period = services.demo_period()
+        run = current_run(request, period) if period else None
         if run is None:
-            latest = services.latest_run()
-            if latest is None:
-                return redirect("core:home")
-            if request.method == "POST":
-                return view(request, latest, **kwargs)  # e.g. a second tab: act on the current run
-            return redirect(reverse(request.resolver_match.view_name, kwargs={"run_id": latest.pk, **kwargs}))
+            return render(request, "core/empty.html")
         return view(request, run, **kwargs)
     return wrapper
 
@@ -47,6 +45,7 @@ def base_context(run: m.PayrollRun, active: str) -> dict:
         "run": run,
         "period": run.period,
         "active": active,
+        "in_sandbox": run.sandbox_id is not None,
         "open_count": run.exceptions.filter(severity="needs_review", status="open").count(),
         "blocking_count": run.exceptions.filter(severity="blocking").count(),
         "is_final": run.status == m.PayrollRun.FINALIZED,
@@ -60,11 +59,18 @@ def raw_row_index(period: m.PayPeriod) -> dict[tuple[str, int], m.RawImportRow]:
 
 # ---------------------------------------------------------------- pages
 
-def home(request):
-    run = services.latest_run()
-    if run is None:
-        return render(request, "core/empty.html")
-    return redirect("core:overview", run_id=run.pk)
+LEGACY_PAGE = re.compile(r"^(?:(inputs|exceptions|payroll)/|employees/([A-Za-z0-9_-]+)/)?$")
+
+
+def legacy_run_url(request, rest=""):
+    """Old ``/runs/<id>/...`` links go to the same page of the visitor's own view. The id is ignored."""
+    match = LEGACY_PAGE.match(rest)
+    if not match:
+        return redirect("core:overview")
+    page, employee_id = match.groups()
+    if employee_id:
+        return redirect("core:employee", employee_id=employee_id)
+    return redirect(f"core:{page}" if page else "core:overview")
 
 
 @with_run
@@ -83,7 +89,7 @@ def overview(request, run):
                             ("info", severities["info"])],
         "approved_count": run.exceptions.filter(severity="needs_review", status="approved").count(),
         "blockers": services.finalize_blockers(run),
-        "decision_count": run.period.decisions.count(),
+        "decision_count": services.decisions(run.period, run.sandbox).count(),
     })
     return render(request, "core/overview.html", ctx)
 
@@ -143,7 +149,7 @@ def present_exception(x: m.PayrollExceptionRecord, decisions: dict, raw_rows: di
 @with_run
 def exceptions(request, run):
     ctx = base_context(run, "exceptions")
-    decisions = {d.exception_key: d for d in run.period.decisions.all()}
+    decisions = {d.exception_key: d for d in services.decisions(run.period, run.sandbox)}
     raw_rows = raw_row_index(run.period)
     leave_types = list(load_rules(DEFAULT_RULES_PATH).leave_types)
     records = run.exceptions.select_related("employee", "location").order_by("id")
@@ -226,76 +232,101 @@ def employee(request, run, employee_id):
 
 
 # ---------------------------------------------------------------- actions (POST, CSRF protected)
+# Every action works on the visitor's own sandbox. Actions that change anything create it on first use.
 
 def _after_change(request, new_run: m.PayrollRun, message: str, fragment: str = ""):
     open_count = new_run.exceptions.filter(severity="needs_review", status="open").count()
     left = "Nothing left to review." if open_count == 0 else f"{open_count} item{'s' if open_count != 1 else ''} " \
                                                              f"still need{'s' if open_count == 1 else ''} review."
     messages.success(request, f"{message} {left}")
-    url = reverse("core:exceptions", kwargs={"run_id": new_run.pk})
+    url = reverse("core:exceptions")
     return redirect(f"{url}#{fragment}" if fragment else url)
 
 
+def _no_sandbox(request, message: str):
+    messages.info(request, message)
+    return redirect("core:exceptions")
+
+
 @require_POST
-@with_run
-def decide(request, run):
+def decide(request):
     key = request.POST.get("exception_key", "")
     action = request.POST.get("action", "")
     value = {k: request.POST.get(k, "") for k in ("hours", "location", "leave_type", "amount")}
+    sandbox = get_sandbox(request, create=True)
+    if sandbox is None:
+        return redirect("core:overview")
     try:
-        new_run = services.decide(run.period, key, action, value, request.POST.get("note", ""))
+        new_run = services.decide(services.demo_period(), key, action, value, request.POST.get("note", ""),
+                                  sandbox=sandbox)
     except services.PayrollError as e:
         messages.error(request, str(e))
-        return redirect(reverse("core:exceptions", kwargs={"run_id": run.pk}) + f"#{anchor(key)}")
+        return redirect(reverse("core:exceptions") + f"#{anchor(key)}")
     title = code_title(key.split("|")[0])
     verb = "Approved with value" if action == m.ReviewDecision.APPROVE_WITH_VALUE else "Approved"
     return _after_change(request, new_run, f"{verb}: {title}.", anchor(key))
 
 
 @require_POST
-@with_run
-def undo(request, run):
+def undo(request):
     key = request.POST.get("exception_key", "")
+    sandbox = get_sandbox(request)
+    if sandbox is None:
+        return _no_sandbox(request, "Nothing to undo: you have not made any decisions yet.")
     try:
-        new_run = services.undo_decision(run.period, key)
+        new_run = services.undo_decision(services.demo_period(), key, sandbox=sandbox)
     except services.PayrollError as e:
         messages.error(request, str(e))
-        return redirect("core:exceptions", run_id=run.pk)
+        return redirect("core:exceptions")
     return _after_change(request, new_run, f"Decision undone: {code_title(key.split('|')[0])}.", anchor(key))
 
 
 @require_POST
-@with_run
-def clear_decisions(request, run):
+def clear_decisions(request):
+    sandbox = get_sandbox(request)
+    if sandbox is None:
+        return _no_sandbox(request, "Nothing to reset: you have not made any decisions yet.")
     try:
-        new_run = services.clear_decisions(run.period)
+        new_run = services.clear_decisions(services.demo_period(), sandbox=sandbox)
     except services.PayrollError as e:
         messages.error(request, str(e))
-        return redirect("core:exceptions", run_id=run.pk)
+        return redirect("core:exceptions")
     return _after_change(request, new_run, "All decisions reset.")
 
 
 @require_POST
-@with_run
-def finalize(request, run):
+def finalize(request):
+    sandbox = get_sandbox(request, create=True)
+    if sandbox is None:
+        return redirect("core:overview")
     try:
-        services.finalize(run)
+        services.finalize(services.demo_period(), sandbox=sandbox)
     except services.FinalizeRefused as e:
         messages.error(request, "Cannot finalize: " + "; ".join(e.reasons))
     except services.PayrollError as e:
         messages.error(request, str(e))
     else:
-        messages.success(request, "Payroll finalized. Loan and advance deductions were posted.")
-    return redirect("core:overview", run_id=run.pk)
+        messages.success(request, "Payroll finalized in your copy of the demo.")
+    return redirect("core:overview")
 
 
 @require_POST
-@with_run
-def reopen(request, run):
+def reopen(request):
+    sandbox = get_sandbox(request)
+    if sandbox is None:
+        messages.info(request, "Nothing to reopen.")
+        return redirect("core:overview")
     try:
-        services.reopen(run)
+        services.reopen(services.demo_period(), sandbox=sandbox)
     except services.PayrollError as e:
         messages.error(request, str(e))
     else:
-        messages.success(request, "Payroll reopened as a draft. Loan postings were taken back.")
-    return redirect("core:overview", run_id=run.pk)
+        messages.success(request, "Payroll reopened as a draft.")
+    return redirect("core:overview")
+
+
+@require_POST
+def start_over(request):
+    forget_sandbox(request)
+    messages.success(request, "Started over: you are back on the clean demo.")
+    return redirect("core:overview")
