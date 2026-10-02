@@ -254,7 +254,7 @@ class _EmployeeRun:
                 bad = "; ".join(x.message for x in self.bad_rows[(s.location_code, s.date)])
                 raw = ", ".join(f"{p.timestamp:%H:%M} {(p.kind or 'punch').upper()} (row {p.source_row})"
                                 for p in s.raw_punches) or "none"
-                self.flag("MALFORMED_ROW", f"{bad}. The day cannot be paid reliably without that punch: counted "
+                self.flag("MALFORMED_ROW", f"{bad}. The remaining punches cannot be paired: counted "
                           f"as 0.00 h. Remaining punches: {raw}. {hint}", loc=s.location_code, on=s.date,
                           severity=exc.NEEDS_REVIEW)
                 self.line.step(f"{s.date} {store(s.location_code)}", f"unreadable punch row; remaining punches "
@@ -291,6 +291,8 @@ class _EmployeeRun:
                           f"{store(s.location_code)}. Paid at {store(s.pay_location_code)} rate and cost "
                           f"allocated to {store(s.pay_location_code)}; confirm", loc=s.pay_location_code, on=s.date)
             note = f" (punched at {store(s.location_code)})" if s.pay_location_code else ""
+            if "malformed_row_paid" in s.flags:
+                note += " (paid from remaining punches; unreadable row pending review)"
             self.line.step(f"{s.date} {store(s.paid_at)}", f"{hhmm(s.start)}-{hhmm(s.end)} = "
                            f"{fmt_hours(s.hours)} h{note}", None, date=s.date, hours=s.hours,
                            step="shift")
@@ -442,14 +444,17 @@ def compute_premium(week: WeekHours, line: PayrollLine, rules: Rules, label: str
     return change
 
 
+UNRESOLVED = {"missed_clock_out", "missed_clock_in", "odd_punches"}
+
+
 def settle_bad_rows(
     bad_rows: Iterable[PayrollException], shifts: list[Shift], period: Period,
 ) -> tuple[list[Shift], dict[str, dict[tuple[str, date], list[PayrollException]]], list[PayrollException]]:
     """Decide what an unparseable row for a known employee means for pay.
 
-    A bad row dated inside the period voids that employee's day at that store: the
-    remaining punches can't be trusted to pair correctly, so the day becomes a single
-    0 h shift with the raw punches attached and is raised for review. A row whose date
+    A bad row dated inside the period puts that employee's day at that store up for
+    review. If the remaining punches pair cleanly the day is paid from them; otherwise
+    the day becomes a single 0 h shift with the raw punches attached. A row whose date
     can't be read also needs review. Only rows dated outside the period stay ``info``.
     """
     voided: dict[str, dict[tuple[str, date], list[PayrollException]]] = defaultdict(lambda: defaultdict(list))
@@ -460,7 +465,8 @@ def settle_bad_rows(
                                   f"is unknown: check this employee's punches", employee_id=bad.employee_id,
                                   location_code=bad.location_code, severity=exc.NEEDS_REVIEW))
         elif not period.start <= bad.date <= period.end:
-            bad.resolution = "Row skipped: dated outside the period, no effect on pay"
+            bad.message += ": outside this pay period, no effect on pay"
+            bad.resolution = "Row skipped"
             found.append(bad)
         else:
             voided[bad.employee_id][(bad.location_code, bad.date)].append(bad)
@@ -473,9 +479,23 @@ def settle_bad_rows(
         else:
             kept.append(s)
     for emp_id, days in voided.items():
-        for (loc, day) in days:
-            raw = sorted((p for s in removed[(emp_id, loc, day)] for p in s.raw_punches),
-                         key=lambda p: (p.timestamp, p.source_row))
+        for (loc, day), bads in list(days.items()):
+            day_shifts = removed[(emp_id, loc, day)]
+            if day_shifts and all(s.hours > 0 and not set(s.flags) & UNRESOLVED for s in day_shifts):
+                # The remaining punches pair cleanly: pay them, but a person confirms the lost punch.
+                hours = sum((s.hours for s in day_shifts), ZERO)
+                for s in day_shifts:
+                    s.flags.append("malformed_row_paid")
+                kept.extend(day_shifts)
+                found.append(exc.make(
+                    "MALFORMED_ROW",
+                    f"{'; '.join(b.message for b in bads)}. Paid {fmt_hours(hours)} h from the remaining punches; "
+                    f"confirm the unreadable punch was not a real break or extra shift.",
+                    employee_id=emp_id, location_code=loc, on=day, severity=exc.NEEDS_REVIEW,
+                ))
+                del days[(loc, day)]
+                continue
+            raw = sorted((p for s in day_shifts for p in s.raw_punches), key=lambda p: (p.timestamp, p.source_row))
             start = raw[0].timestamp if raw else datetime.combine(day, time.min)
             kept.append(Shift(emp_id, loc, day, start, None, ZERO, ["malformed_row"], raw_punches=raw))
     return kept, {k: dict(v) for k, v in voided.items()}, found

@@ -34,7 +34,7 @@ pytest
 - **Gross pay** = regular + overtime + add-ons - absence deductions.
 - **Net pay** = gross - penalties - loans - custom deductions.
 - **Loan cap.** The cap is a percentage of net pay before loans. For a leaver, the engine deducts the remaining balance up to that cap. Anything still owed is flagged as a final settlement.
-- **Unreadable rows.** A bad row for a known employee, dated inside the period, holds that employee's day at that store at 0 h. The remaining punches are attached and the scheduled hours are suggested, and the row is raised as `needs_review`. A row whose date can't be read is also `needs_review`. Only rows dated outside the period stay `info`.
+- **Unreadable rows.** A bad row for a known employee, dated inside the period, is raised as `needs_review`. If the employee's remaining punches for that day at that store pair cleanly, the day is paid from them and the reviewer confirms the lost punch wasn't a real break or extra shift. If they can't be paired, the day is counted as 0 h, with the remaining punches attached and the scheduled hours suggested. A row whose date can't be read is also `needs_review`. Rows dated outside the period stay `info` and have no effect on pay.
 - **Shifts at a store with no export.** The engine never turns these into absences. The `STORE_FILE_MISSING` blocking exception covers them.
 - **Finalizing.** `finalize` adds each loan deduction to `paid_to_date`, so whatever was capped carries into the next period. A finalized period cannot be re-run.
 
