@@ -1,4 +1,4 @@
-# Payroll demo: engine, rules, data (Spec 1)
+# Payroll demo: engine, review flow and screens
 
 Multi-location retail payroll. Messy time clock exports from three stores go in. Every exception is caught and explained, and a clean payroll comes out. It is finalized only after review. All data is synthetic.
 
@@ -13,6 +13,25 @@ python manage.py run_payroll --period 2026-09-07
 pytest
 ```
 
+## Running the screens
+
+`payroll/settings.py` ships with an empty `SECRET_KEY` and `DEBUG = False`. The screens need a key, and `DEBUG = True` serves the stylesheet locally. Set both in the gitignored `payroll/environment.py`:
+
+```python
+SECRET_KEY = "dev-only-change-me"
+DEBUG = True
+ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
+```
+
+Then run `python manage.py runserver` and open http://127.0.0.1:8000/. The tests use `payroll/settings_test.py`, which supplies a throwaway key when none is set.
+
+The demo story:
+1. **Overview** shows that 7 items need review.
+2. **Inputs** shows each store's raw export. Flagged rows link to their exception.
+3. **Exceptions** is where you resolve each item. Approve it as is, or approve it with a value: hours, a store, a leave type, or a loan amount.
+4. Totals update after every decision.
+5. **Finalize** becomes available once nothing is open. **Reopen** puts the run back to draft so you can walk through it again.
+
 ## Layout
 
 | Path | What it does |
@@ -22,10 +41,11 @@ pytest
 | `engine/hr_stage.py` | Dedupe and pair punches into shifts, then lates, half days, absences, store mismatches and weekly overtime |
 | `engine/finance_stage.py` | Add-ons (with OT recalculation), gross pay, loans and advances, final pay |
 | `engine/custom_rules.py` | Registry of client-configured deductions (`percent_of_gross`, `table_lookup`) |
-| `engine/run.py` | `run_payroll(inputs, rules)` orchestrator |
+| `engine/run.py` | `run_payroll(inputs, rules, adjustments)` orchestrator |
 | `rules/demo_rules.yaml` | Every threshold, rate and penalty |
 | `demo_data/generator.py` | Seeded generator. Writes the inputs and `scenario_manifest.json` |
-| `services.py` | ORM-to-engine bridge, `run_payroll`, `review_exception`, `finalize` |
+| `services.py` | ORM-to-engine bridge: `run_payroll`, `decide`, `undo_decision`, `clear_decisions`, `finalize`, `reopen` |
+| `views.py`, `templates/core/`, `static/core/demo.css` | The demo screens: plain Django templates, one stylesheet, a little vanilla JS |
 
 ## Pay calculation
 
@@ -38,8 +58,15 @@ pytest
 - **Shifts at a store with no export.** The engine never turns these into absences. The `STORE_FILE_MISSING` blocking exception covers them.
 - **Finalizing.** `finalize` adds each loan deduction to `paid_to_date`, so whatever was capped carries into the next period. A finalized period cannot be re-run.
 
+## Review decisions
+
+- **Where decisions live.** A decision (`ReviewDecision`) belongs to the pay period, not the run. It is matched to its exception by a stable key: `code|employee_id|date|location_code`.
+- **Every re-run applies them.** Each re-run loads the period's decisions. Decisions approved with a value become engine `Adjustments`: hours, pay store, leave type, or loan amount. Exceptions that have a decision are then marked approved.
+- **The original exception stays visible.** When an adjustment applies, the engine still raises the exception, marked as resolved with the reviewer's resolution text. The trail gets a "Reviewer adjustment: ..." step.
+- **What can't be decided.** Blocking exceptions can't be approved; fix the input and re-run. Info exceptions need no decision.
+
 ## Severities
 
 - `info`: a rule settled it.
-- `needs_review`: a person must approve or override it before finalizing.
+- `needs_review`: a person must decide it (approve as is, or approve with a value) before finalizing.
 - `blocking`: the run cannot be finalized until the inputs are fixed and payroll is re-run.

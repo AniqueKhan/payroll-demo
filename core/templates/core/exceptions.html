@@ -1,0 +1,42 @@
+{% extends "core/base.html" %}
+{% load payroll_ui %}
+{% block title %}Exceptions{% endblock %}
+{% block content %}
+<section class="intro">
+  <h1>Review queue</h1>
+  <p class="lead">
+    {% if open_count %}<strong>{{ open_count }}</strong> item{{ open_count|pluralize }} need{{ open_count|pluralize:"s," }} your review.
+    {% else %}Nothing left to review.{% endif %}
+    Every decision re-runs payroll and is kept with the period, so it survives re-runs.
+  </p>
+</section>
+
+{% for key, title, help, items in sections %}
+<section class="queue-section" id="{{ key }}">
+  <h2><span class="pill pill-{{ key }}">{{ title }}</span> <span class="count">{{ items|length }}</span></h2>
+  <p class="muted">{{ help }}</p>
+  {% if items %}
+    {% if key == "info" %}
+      <details class="card">
+        <summary>Show {{ items|length }} item{{ items|length|pluralize }} handled by rule</summary>
+        {% for item in items %}{% include "core/_exception.html" %}{% endfor %}
+      </details>
+    {% else %}
+      {% for item in items %}{% include "core/_exception.html" %}{% endfor %}
+    {% endif %}
+  {% else %}
+    <p class="empty">None.</p>
+  {% endif %}
+</section>
+{% endfor %}
+
+{% if decision_count and not is_final %}
+<section class="card reset">
+  <form method="post" action="{% url 'core:clear_decisions' run.pk %}">
+    {% csrf_token %}
+    <button class="btn btn-secondary" type="submit">Reset all decisions</button>
+    <span class="muted small">Deletes all {{ decision_count }} decision{{ decision_count|pluralize }} and re-runs payroll.</span>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,86 @@
+{% load payroll_ui %}{% with x=item.record %}
+<article class="exc exc-{{ x.severity }}{% if x.status != 'open' %} exc-approved{% endif %}" id="{{ item.anchor }}">
+  <header class="exc-head">
+    <h3>{{ item.title }}</h3>
+    <span class="pill pill-{{ x.severity }}{% if x.severity == 'needs_review' and x.status != 'open' %} pill-approved{% endif %}">
+      {% if x.severity == 'needs_review' and x.status != 'open' %}Approved{% else %}{{ x.severity|severity_label }}{% endif %}
+    </span>
+  </header>
+  <p class="exc-meta">
+    {% if x.employee %}<a href="{% url 'core:employee' run.pk x.employee.employee_id %}">{{ x.employee.name }}</a> <span class="muted">{{ x.employee.employee_id }}</span>{% else %}<span class="muted">All employees</span>{% endif %}
+    {% if x.location %} · Store {{ x.location.code }}{% endif %}
+    {% if x.date %} · {{ x.date|date:"D M j" }}{% endif %}
+  </p>
+  <p class="exc-msg">{{ x.message }}</p>
+  {% if x.resolution %}<p class="exc-res"><span class="muted">Resolution:</span> {{ x.resolution }}</p>{% endif %}
+
+  {% if item.rows %}
+  <details class="rows">
+    <summary>Raw rows involved ({{ item.rows|length }})</summary>
+    <ul class="rawlist">
+      {% for r in item.rows %}
+        <li><a href="{% url 'core:inputs' run.pk %}#row-{{ r.location }}-{{ r.number }}">Store {{ r.location }} row {{ r.number }}</a>:
+          {% if r.raw %}<code>{% for k, v in r.raw.raw.items %}{{ k }}={{ v|default:"(empty)" }}{% if not forloop.last %}, {% endif %}{% endfor %}</code>{% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+
+  {% if x.severity == "blocking" %}
+    <p class="callout callout-red">Cannot be approved. Fix it at the input (for example, import the missing file), then re-run payroll.</p>
+  {% elif x.severity == "needs_review" and x.status == "open" and not is_final %}
+    <form class="decide" method="post" action="{% url 'core:decide' run.pk %}">
+      {% csrf_token %}
+      <input type="hidden" name="exception_key" value="{{ x.exception_key }}">
+      <div class="fields">
+        {% if item.value_kind == "hours" %}
+          <label>Hours worked <input type="number" name="hours" min="0" max="24" step="0.01" value="{{ item.default }}" inputmode="decimal"></label>
+        {% elif item.value_kind == "location" %}
+          <label>Pay at store
+            <select name="location">{% for code in item.stores %}<option value="{{ code }}" {% if code == item.default %}selected{% endif %}>Store {{ code }}{% if code == item.default %} (scheduled){% endif %}</option>{% endfor %}</select>
+          </label>
+        {% elif item.value_kind == "leave_type" %}
+          <label>Reclassify as leave
+            <select name="leave_type">{% for lt in leave_types %}<option value="{{ lt }}">{{ lt }}</option>{% endfor %}</select>
+          </label>
+        {% elif item.value_kind == "amount" %}
+          <label>Deduction ($) <input type="number" name="amount" min="0" max="{{ x.context.installment }}" step="0.01" value="{{ item.default }}" inputmode="decimal"></label>
+          <span class="muted small">Between $0.00 and the installment {{ x.context.installment|money }}</span>
+        {% endif %}
+        <label class="note">Note <input type="text" name="note" maxlength="300" placeholder="Why (optional)"></label>
+      </div>
+      <div class="actions">
+        <button class="btn btn-secondary" type="submit" name="action" value="approve">
+          {% if x.code == "EXIT_FINAL_SETTLEMENT" %}Acknowledge{% else %}Approve as is{% endif %}
+        </button>
+        {% if item.value_kind %}
+          <button class="btn" type="submit" name="action" value="approve_with_value">
+            {% if item.value_kind == "hours" %}Approve with these hours{% elif item.value_kind == "location" %}Approve with this store{% elif item.value_kind == "leave_type" %}Reclassify as leave{% else %}Approve with this amount{% endif %}
+          </button>
+        {% endif %}
+      </div>
+    </form>
+  {% elif x.severity == "needs_review" and item.decision %}
+    <div class="decision">
+      <p><strong>{% if item.decision.action == "approve_with_value" %}Approved with value{% else %}Approved as is{% endif %}</strong>
+        {% if item.decision.value %}:
+          {% if item.decision.value.hours %}{{ item.decision.value.hours }} h{% endif %}
+          {% if item.decision.value.location %}Store {{ item.decision.value.location }}{% endif %}
+          {% if item.decision.value.leave_type %}{{ item.decision.value.leave_type }} leave{% endif %}
+          {% if item.decision.value.amount %}{{ item.decision.value.amount|money }}{% endif %}
+        {% endif %}
+        <span class="muted small">· {{ item.decision.decided_at|date:"M j, H:i" }}</span>
+      </p>
+      {% if item.decision.note %}<p class="muted">Note: {{ item.decision.note }}</p>{% endif %}
+      {% if not is_final %}
+      <form method="post" action="{% url 'core:undo' run.pk %}">
+        {% csrf_token %}
+        <input type="hidden" name="exception_key" value="{{ x.exception_key }}">
+        <button class="btn btn-link" type="submit">Undo</button>
+      </form>
+      {% endif %}
+    </div>
+  {% endif %}
+</article>
+{% endwith %}

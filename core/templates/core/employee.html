@@ -1,0 +1,91 @@
+{% extends "core/base.html" %}
+{% load payroll_ui %}
+{% block title %}{{ employee.name }}{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="{% url 'core:payroll' run.pk %}">← Payroll</a></p>
+<section class="intro">
+  <h1>{{ employee.name }} <span class="muted">{{ employee.employee_id }}</span></h1>
+  <p class="lead">
+    {{ employee.get_pay_type_display }} · home Store {{ employee.home_location.code }}
+    {% if employee.pay_type == "salaried" %} · salary {{ employee.salary_per_period|money }} per period{% endif %}
+    {% for code, name, rate in rates %}{% if forloop.first %} · rates: {% endif %}Store {{ code }} {{ rate|money }}/h{% if not forloop.last %}, {% endif %}{% endfor %}
+    {% if employee.hire_date > period.start_date %} · hired {{ employee.hire_date|date:"M j" }}{% endif %}
+    {% if employee.exit_date %} · exit {{ employee.exit_date|date:"M j" }}{% endif %}
+  </p>
+</section>
+
+<section class="grid stats">
+  <div class="stat"><span class="stat-label">Hours</span><span class="stat-value">{{ line.hours|hours }}</span></div>
+  <div class="stat"><span class="stat-label">Gross</span><span class="stat-value num">{{ line.gross|money }}</span></div>
+  <div class="stat"><span class="stat-label">Deductions</span><span class="stat-value num">{{ line.deductions|money }}</span></div>
+  <div class="stat"><span class="stat-label">Net</span><span class="stat-value num">{{ line.net|money }}</span></div>
+</section>
+
+{% if adjustment_count %}
+<p class="callout callout-adjust">{{ adjustment_count }} reviewer adjustment{{ adjustment_count|pluralize }} changed this calculation. They are highlighted below.</p>
+{% endif %}
+
+<section class="card">
+  <h2>Calculation trail</h2>
+  {% for section in sections %}
+    <h3 class="stage">{{ section.title }}</h3>
+    {% if section.shifts %}
+      <details class="shifts">
+        <summary>Daily shifts ({{ section.shifts|length }})</summary>
+        <ul class="trail">
+          {% for s in section.shifts %}<li><span class="label">{{ s.label }}</span> <span class="formula">{{ s.formula }}</span></li>{% endfor %}
+        </ul>
+      </details>
+    {% endif %}
+    {% if section.steps %}
+      <ol class="trail">
+        {% for s in section.steps %}
+          <li class="{% if s.refs.adjustment %}adjust{% endif %}">
+            {% if s.refs.adjustment %}<span class="tag tag-blue">Reviewer</span>{% endif %}
+            <span class="label">{{ s.label }}</span>
+            <span class="formula">{{ s.formula }}</span>
+            {% if s.amount is not None %}<span class="amount num">{{ s.amount|money }}</span>{% endif %}
+          </li>
+        {% endfor %}
+      </ol>
+    {% elif not section.shifts %}
+      <p class="muted">No steps.</p>
+    {% endif %}
+  {% endfor %}
+</section>
+
+<div class="grid two">
+  <section class="card">
+    <h2>By store</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Store</th><th class="num">Hours</th><th class="num">Regular</th><th class="num">OT</th><th class="num">Add-ons</th><th class="num">Absence</th><th class="num">Cost (gross)</th></tr></thead>
+        <tbody>
+          {% for code, name, b in by_location %}
+            <tr><td><strong>{{ code }}</strong> {{ name }}</td><td class="num">{{ b.hours|hours }}</td><td class="num">{{ b.regular_pay|money }}</td><td class="num">{{ b.overtime_pay|money }}</td><td class="num">{{ b.addons|money }}</td><td class="num">{{ b.absence_deductions|money }}</td><td class="num">{{ b.gross|money }}</td></tr>
+          {% empty %}
+            <tr><td colspan="7" class="muted">No hours or cost this period.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Exceptions</h2>
+    {% if employee_exceptions %}
+      <ul class="exc-links">
+        {% for e in employee_exceptions %}
+          <li>
+            <span class="pill pill-{{ e.record.severity }}{% if e.record.severity == 'needs_review' and e.record.status != 'open' %} pill-approved{% endif %}">{% if e.record.severity == 'needs_review' and e.record.status != 'open' %}Approved{% else %}{{ e.record.severity|severity_label }}{% endif %}</span>
+            <a href="{% url 'core:exceptions' run.pk %}#{{ e.anchor }}">{{ e.title }}</a>
+            {% if e.record.date %}<span class="muted small">{{ e.record.date|date:"M j" }}</span>{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">None.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

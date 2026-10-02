@@ -1,0 +1,93 @@
+{% extends "core/base.html" %}
+{% load payroll_ui %}
+{% block title %}Inputs{% endblock %}
+{% block content %}
+<section class="intro">
+  <h1>Raw time clock inputs</h1>
+  <p class="lead">The "before": each store's export exactly as it arrived, in that store's own format. Rows the engine flagged are highlighted and link to the exception.</p>
+</section>
+
+<div class="tabs" role="tablist" aria-label="Stores" data-tabs>
+  {% for s in stores %}
+    <a class="tab" role="tab" href="#store-{{ s.location.code }}" id="tab-{{ s.location.code }}"
+       aria-controls="store-{{ s.location.code }}" {% if forloop.first %}aria-selected="true"{% else %}aria-selected="false"{% endif %}>
+      Store {{ s.location.code }} <span class="muted">{{ s.location.name }}</span>
+      {% if s.missing %}<span class="badge badge-red">missing</span>{% elif s.flagged %}<span class="badge badge-amber">{{ s.flagged }} flagged</span>{% endif %}
+    </a>
+  {% endfor %}
+</div>
+
+{% for s in stores %}
+<section class="card tab-panel" id="store-{{ s.location.code }}" role="tabpanel" aria-labelledby="tab-{{ s.location.code }}">
+  <h2>Store {{ s.location.code }}: {{ s.location.name }}</h2>
+  {% if s.missing %}
+    <p class="callout callout-red"><span class="pill pill-blocking">Blocking</span>
+      No file received for this period. Nothing is estimated.
+      <a href="{% url 'core:exceptions' run.pk %}#blocking">See the exception →</a></p>
+  {% else %}
+    <p class="muted small">
+      Format <code>{{ s.location.export_format }}</code> · file <code>{{ s.batch.basename }}</code> ·
+      {{ s.batch.row_count }} rows · columns as exported:
+      {% for c in s.batch.columns %}<code class="{% if c in s.batch.unknown_columns %}col-unknown{% endif %}">{{ c }}</code>{% if c in s.batch.unknown_columns %} <span class="tag tag-amber">unknown column, ignored</span>{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}
+    </p>
+    <div class="table-wrap">
+      <table class="raw">
+        <thead>
+          <tr>
+            <th class="num">Row</th>
+            {% for c in s.batch.columns %}
+              <th class="{% if c in s.batch.unknown_columns %}col-unknown{% endif %}">{{ c }}{% if c in s.batch.unknown_columns %} <span class="tag tag-amber">unknown</span>{% endif %}</th>
+            {% endfor %}
+            <th>Flagged by the engine</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for r in s.rows %}
+          <tr id="row-{{ s.location.code }}-{{ r.number }}" class="{% if r.error %}row-malformed {% endif %}{% if r.severity %}row-{{ r.severity }}{% endif %}">
+            <td class="num muted">{{ r.number }}</td>
+            {% for v in r.values %}<td>{% if v %}{{ v }}{% else %}<span class="muted">(empty)</span>{% endif %}</td>{% endfor %}
+            <td>
+              {% if r.error %}<span class="tag tag-red">malformed row</span>{% endif %}
+              {% for ref in r.refs %}
+                <a class="ref" href="{% url 'core:exceptions' run.pk %}#{{ ref.anchor }}"><span class="pill pill-{{ ref.record.severity }}{% if ref.record.status == 'approved' %} pill-approved{% endif %}">{{ ref.record.severity|severity_label }}</span> {{ ref.title }}</a>
+              {% endfor %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</section>
+{% endfor %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Tabs: without JavaScript every store is shown one after another.
+(function () {
+  var list = document.querySelector("[data-tabs]");
+  if (!list) return;
+  var tabs = Array.prototype.slice.call(list.querySelectorAll("[role=tab]"));
+  function show(id) {
+    tabs.forEach(function (t) {
+      var on = t.getAttribute("aria-controls") === id;
+      t.setAttribute("aria-selected", on ? "true" : "false");
+      document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+    });
+  }
+  tabs.forEach(function (t) {
+    t.addEventListener("click", function (e) {
+      e.preventDefault();
+      show(t.getAttribute("aria-controls"));
+      history.replaceState(null, "", "#" + t.getAttribute("aria-controls"));
+    });
+  });
+  var hash = location.hash.slice(1);
+  var row = hash.indexOf("row-") === 0 ? document.getElementById(hash) : null;
+  var start = row ? row.closest("[role=tabpanel]").id : (document.getElementById(hash) ? hash : tabs[0].getAttribute("aria-controls"));
+  show(start);
+  if (row) { row.classList.add("row-target"); row.scrollIntoView({block: "center"}); }
+})();
+</script>
+{% endblock %}

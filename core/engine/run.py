@@ -5,6 +5,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import timedelta
 from decimal import Decimal
+from typing import Optional
 
 from . import exceptions as exc
 from .config import Rules
@@ -15,7 +16,7 @@ from .hr_stage import run_hr_stage
 from .importers import get_importer
 from .importers.base import FileLike
 from .types import (
-    ZERO, Employee, LeaveRecord, LoanAdvance, Location, PayAddOn, PayrollException, PayrollResult,
+    ZERO, Adjustments, Employee, LeaveRecord, LoanAdvance, Location, PayAddOn, PayrollException, PayrollResult,
     Period, Punch, ScheduledShift,
 )
 
@@ -66,22 +67,26 @@ def import_time_files(inputs: PayrollInputs, rules: Rules) -> tuple[list[Punch],
     return punches, found, missing
 
 
-def run_payroll(inputs: PayrollInputs, rules: Rules) -> PayrollResult:
+def run_payroll(inputs: PayrollInputs, rules: Rules, adjustments: Optional[Adjustments] = None) -> PayrollResult:
+    """Run the full pipeline. ``adjustments`` carry reviewer decisions that replace the engine's defaults."""
     period = inputs.period
+    adjustments = adjustments or Adjustments()
+    applied: dict[str, str] = {}  # exception key -> resolution text, filled by the stages
     punches, found, missing = import_time_files(inputs, rules)
     # Bad rows that belong to a known employee may change someone's pay: the HR stage settles them.
     bad_rows = [e for e in found if e.code == "MALFORMED_ROW" and e.employee_id]
     found = [e for e in found if not (e.code == "MALFORMED_ROW" and e.employee_id)]
 
     hr, hr_found = run_hr_stage(inputs.employees, inputs.schedules, punches, inputs.leaves, period, rules, missing,
-                                bad_rows)
+                                bad_rows, adjustments, applied)
     found.extend(hr_found)
-    found.extend(run_finance_stage(hr, inputs.addons, inputs.loans, period, rules))
+    found.extend(run_finance_stage(hr, inputs.addons, inputs.loans, period, rules, adjustments, applied))
 
     lines = [hr[k].line for k in sorted(hr)]
     found.extend(apply_custom_rules(rules.custom_rules, lines))
 
     for line in lines:
+        line.stage = "custom"
         line.net = line.gross - line.penalties - line.loan_deductions - line.custom_deductions
         line.step("Net pay", f"gross {fmt_money(line.gross)} - penalties {fmt_money(line.penalties)} - loans "
                   f"{fmt_money(line.loan_deductions)} - custom {fmt_money(line.custom_deductions)} = "
@@ -89,6 +94,12 @@ def run_payroll(inputs: PayrollInputs, rules: Rules) -> PayrollResult:
         if line.net < 0:
             found.append(exc.make("NEGATIVE_NET", f"Net pay {fmt_money(line.net)} is negative",
                                   employee_id=line.employee_id))
+
+    # The original exception stays visible, marked as settled by the reviewer's adjustment.
+    for e in found:
+        if e.key in applied:
+            e.adjusted = True
+            e.resolution = applied[e.key]
 
     found.sort(key=lambda e: (SEVERITY_ORDER[e.severity], e.code, e.employee_id or "", str(e.date or "")))
     return PayrollResult(lines=lines, exceptions=found, period=period, totals=compute_totals(lines, found, inputs))

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from django.db import models
 
 
@@ -94,9 +96,27 @@ class ImportBatch(models.Model):
     status = models.CharField(max_length=10, choices=STATUSES, default="imported")
     row_count = models.PositiveIntegerField(default=0)
     imported_at = models.DateTimeField(auto_now_add=True)
+    columns = models.JSONField(default=list)  # header exactly as exported
+    unknown_columns = models.JSONField(default=list)
 
     class Meta:
         ordering = ["location__code"]
+
+    @property
+    def basename(self) -> str:
+        return Path(self.filename).name
+
+
+class RawImportRow(models.Model):
+    """One row of a store export, kept exactly as it arrived so the UI can show the 'before'."""
+    batch = models.ForeignKey(ImportBatch, on_delete=models.CASCADE, related_name="raw_rows")
+    row_number = models.PositiveIntegerField()  # line number in the file (header is 1)
+    raw = models.JSONField()  # {column: value as exported}
+    parse_error = models.TextField(blank=True, default="")
+
+    class Meta:
+        ordering = ["batch", "row_number"]
+        constraints = [models.UniqueConstraint(fields=["batch", "row_number"], name="unique_raw_row")]
 
 
 class PayrollRun(models.Model):
@@ -129,11 +149,21 @@ class PayrollLineRecord(models.Model):
     custom_deductions = models.DecimalField(max_digits=12, decimal_places=2)
     gross = models.DecimalField(max_digits=12, decimal_places=2)
     net = models.DecimalField(max_digits=12, decimal_places=2)
+    hours = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    overtime_hours = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     by_location = models.JSONField(default=dict)
     trail = models.JSONField(default=list)
 
     class Meta:
         ordering = ["employee__employee_id"]
+
+    @property
+    def regular_hours(self):
+        return self.hours - self.overtime_hours
+
+    @property
+    def deductions(self):
+        return self.penalties + self.loan_deductions + self.custom_deductions
 
 
 class PayrollExceptionRecord(models.Model):
@@ -142,6 +172,7 @@ class PayrollExceptionRecord(models.Model):
     STATUSES = [(OPEN, "Open"), (APPROVED, "Approved"), (OVERRIDDEN, "Overridden")]
 
     run = models.ForeignKey(PayrollRun, on_delete=models.CASCADE, related_name="exceptions")
+    exception_key = models.CharField(max_length=120, db_index=True)  # code|employee_id|date|location_code
     code = models.CharField(max_length=40)
     severity = models.CharField(max_length=12, choices=SEVERITIES)
     employee = models.ForeignKey(Employee, on_delete=models.PROTECT, null=True, blank=True)
@@ -153,9 +184,32 @@ class PayrollExceptionRecord(models.Model):
     status = models.CharField(max_length=12, choices=STATUSES, default=OPEN)
     review_note = models.TextField(blank=True, default="")
     reviewed_at = models.DateTimeField(null=True, blank=True)
+    adjusted = models.BooleanField(default=False)  # a reviewer adjustment changed the calculation
+    rows = models.JSONField(default=list)  # [[location_code, row_number], ...] of the raw rows involved
+    context = models.JSONField(default=dict)  # suggested hours, loan installment, stores, ...
 
     class Meta:
         ordering = ["id"]
 
     def __str__(self):
         return f"{self.severity} {self.code}"
+
+
+class ReviewDecision(models.Model):
+    """A reviewer's call on one exception. Belongs to the period, so it survives re-runs."""
+    APPROVE, APPROVE_WITH_VALUE = "approve", "approve_with_value"
+    ACTIONS = [(APPROVE, "Approve as is"), (APPROVE_WITH_VALUE, "Approve with value")]
+
+    period = models.ForeignKey(PayPeriod, on_delete=models.CASCADE, related_name="decisions")
+    exception_key = models.CharField(max_length=120)
+    action = models.CharField(max_length=20, choices=ACTIONS)
+    value = models.JSONField(null=True, blank=True)  # {"hours": "8.00"} / {"location": "A"} / ...
+    note = models.TextField(blank=True, default="")
+    decided_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["decided_at"]
+        constraints = [models.UniqueConstraint(fields=["period", "exception_key"], name="one_decision_per_exception")]
+
+    def __str__(self):
+        return f"{self.exception_key}: {self.action}"

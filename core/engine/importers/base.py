@@ -8,7 +8,7 @@ from __future__ import annotations
 import csv
 import io
 from abc import ABC, abstractmethod
-from collections import Counter
+from collections import defaultdict
 from pathlib import Path
 from datetime import date
 from typing import IO, Iterable, Optional, Union
@@ -76,7 +76,7 @@ class Importer(ABC):
                 ))
 
         punches: list[Punch] = []
-        unknown: Counter[str] = Counter()
+        unknown: dict[str, list[int]] = defaultdict(list)
         for source_row, row in enumerate(reader, start=2):
             row = {k: (v or "").strip() for k, v in row.items() if k is not None}
             if not any(row.values()):
@@ -84,7 +84,7 @@ class Importer(ABC):
             ident = self.row_identifier(row)
             employee_id = self.id_map.get(normalize_id(ident))
             if employee_id is None:
-                unknown[ident] += 1
+                unknown[ident].append(source_row)
                 continue
             try:
                 punches.extend(self.parse_row(row, employee_id, source_row))
@@ -101,12 +101,15 @@ class Importer(ABC):
                     location_code=self.location_code,
                     on=on,
                     resolution="Row skipped",
+                    rows=[(self.location_code, source_row)],
                 ))
-        for ident, count in unknown.items():
+        for ident, source_rows in unknown.items():
             found.append(exc.make(
                 "UNKNOWN_EMPLOYEE",
-                f"Store {self.location_code}: identifier '{ident}' ({count} rows) does not match any employee",
+                f"Store {self.location_code}: identifier '{ident}' ({len(source_rows)} rows) does not match "
+                f"any employee",
                 location_code=self.location_code,
+                rows=[(self.location_code, r) for r in source_rows],
             ))
         return punches, found
 
