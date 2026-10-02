@@ -14,6 +14,9 @@ class StoreAImporter(Importer):
     def row_identifier(self, row):
         return row["EmpID"]
 
+    def row_date(self, row):
+        return date.fromisoformat(row["Date"])
+
     def parse_row(self, row, employee_id, source_row):
         kind = row["Type"].lower()
         if kind not in ("in", "out"):

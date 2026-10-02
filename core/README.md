@@ -29,11 +29,12 @@ pytest
 
 ## Pay calculation
 
-- **Hourly pay.** Straight time is paid at each store's own rate. Overtime is worked out per workweek, with hours added up across all stores. The premium is `(multiplier - 1) x weighted average regular rate x OT hours`. The weighted rate is rounded to cents, then used in the premium, so the trail line can be checked by hand. Each week's premium is split across stores in proportion to the hours worked there.
+- **Hourly pay.** Straight time is paid at each store's own rate. Overtime is worked out per workweek, with hours added up across all stores. The premium is `(multiplier - 1) x weighted average regular rate x OT hours`. The weighted rate keeps full `Decimal` precision. Only the premium is rounded, half up to cents. The trail shows the rate to cents for display, and spells the premium out as `(earnings / hours)` so it can be checked by hand. Each week's premium is split across stores in proportion to the hours worked there.
 - **Salaried pay.** Salaried staff are exempt from overtime. Daily rate = `salary_per_period / standard working days in the period`. New hires and leavers are prorated by the days they were scheduled to work while employed.
 - **Gross pay** = regular + overtime + add-ons - absence deductions.
 - **Net pay** = gross - penalties - loans - custom deductions.
 - **Loan cap.** The cap is a percentage of net pay before loans. For a leaver, the engine deducts the remaining balance up to that cap. Anything still owed is flagged as a final settlement.
+- **Unreadable rows.** A bad row for a known employee, dated inside the period, holds that employee's day at that store at 0 h. The remaining punches are attached and the scheduled hours are suggested, and the row is raised as `needs_review`. A row whose date can't be read is also `needs_review`. Only rows dated outside the period stay `info`.
 - **Shifts at a store with no export.** The engine never turns these into absences. The `STORE_FILE_MISSING` blocking exception covers them.
 - **Finalizing.** `finalize` adds each loan deduction to `paid_to_date`, so whatever was capped carries into the next period. A finalized period cannot be re-run.
 

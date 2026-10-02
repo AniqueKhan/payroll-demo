@@ -16,6 +16,9 @@ class StoreBImporter(Importer):
     def row_identifier(self, row):
         return row["employee_code"]
 
+    def row_date(self, row):
+        return datetime.strptime(row["punch_datetime"].split()[0], "%m/%d/%Y").date()
+
     def parse_row(self, row, employee_id, source_row):
         try:
             at = datetime.strptime(row["punch_datetime"], DATETIME_FORMAT)
