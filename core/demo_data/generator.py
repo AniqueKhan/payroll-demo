@@ -159,8 +159,11 @@ def apply_scenarios(shifts: list[dict]) -> tuple[list[dict], dict]:
         scenarios.setdefault(str(n), []).append(
             {"employee": emp, "date": day.isoformat() if day else None, "location": location, **extra})
 
-    # 1: malformed row in store A, unexpected column in store C (both added when writing files)
-    record(1, "E02", d(9), "A", code="MALFORMED_ROW", note="row with time '9:6O'")
+    # 1: malformed rows in store A, unexpected column in store C (all added when writing files)
+    record(1, "E02", d(9), "A", code="MALFORMED_ROW", severity="needs_review", scheduled_hours="8.00",
+           note="row with time '9:6O' inside the period: the day is held at 0 h for review")
+    record(1, "E03", date(2026, 9, 6), "A", code="MALFORMED_ROW", severity="info",
+           note="row with time '18:3O' dated before the period: no effect on pay")
     record(1, None, None, "C", code="UNKNOWN_COLUMN", note="extra 'Dept' column")
     # 3: duplicate IN at store A
     find("E02", d(8))["duplicate_in"] = True
@@ -197,8 +200,8 @@ def apply_scenarios(shifts: list[dict]) -> tuple[list[dict], dict]:
     find("E10", d(16))["location"] = "A"
     record(11, "E10", d(16), "B", code="WRONG_LOCATION", punched_at="A", pay="128.00")
     # 12: different rate per store, with overtime
-    record(12, "E11", d(14), None, code="BLENDED_RATE_OVERTIME", week=2, weighted_rate="16.55",
-           ot_hours="4.00", premium="33.10")
+    record(12, "E11", d(14), None, code="BLENDED_RATE_OVERTIME", week=2, weighted_rate="16.55",  # display only
+           ot_hours="4.00", premium="33.09")
     # 13: advance within cap, loan over cap
     record(13, "E12", None, None, code="LOAN_DEDUCTED", severity="info", deducted="150.00", balance_after="300.00")
     record(13, "E16", None, None, code="LOAN_CAPPED", severity="needs_review", deducted="276.00", carried="124.00")
@@ -238,7 +241,8 @@ def write_store_a(path: Path, shifts: list[dict]) -> None:
             rows.append([emp, s["in"].date().isoformat(), (s["in"] + timedelta(minutes=1)).strftime("%H:%M"), "IN"])
         if s["out"]:
             rows.append([emp, s["out"].date().isoformat(), s["out"].strftime("%H:%M"), "OUT"])
-    rows.append([_ext("E02", "A"), "2026-09-09", "9:6O", "IN"])  # scenario 1: malformed row
+    rows.append([_ext("E02", "A"), "2026-09-09", "9:6O", "IN"])  # scenario 1: malformed row, affects pay
+    rows.append([_ext("E03", "A"), "2026-09-06", "18:3O", "OUT"])  # scenario 1: malformed row, previous period
     rows.sort(key=lambda r: (r[1], r[0], r[2]))
     _write_csv(path, ["EmpID", "Date", "Time", "Type"], rows)
 

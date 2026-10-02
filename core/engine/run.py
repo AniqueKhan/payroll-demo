@@ -69,8 +69,12 @@ def import_time_files(inputs: PayrollInputs, rules: Rules) -> tuple[list[Punch],
 def run_payroll(inputs: PayrollInputs, rules: Rules) -> PayrollResult:
     period = inputs.period
     punches, found, missing = import_time_files(inputs, rules)
+    # Bad rows that belong to a known employee may change someone's pay: the HR stage settles them.
+    bad_rows = [e for e in found if e.code == "MALFORMED_ROW" and e.employee_id]
+    found = [e for e in found if not (e.code == "MALFORMED_ROW" and e.employee_id)]
 
-    hr, hr_found = run_hr_stage(inputs.employees, inputs.schedules, punches, inputs.leaves, period, rules, missing)
+    hr, hr_found = run_hr_stage(inputs.employees, inputs.schedules, punches, inputs.leaves, period, rules, missing,
+                                bad_rows)
     found.extend(hr_found)
     found.extend(run_finance_stage(hr, inputs.addons, inputs.loans, period, rules))
 

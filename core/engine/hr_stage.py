@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Iterable, Optional
 
@@ -175,8 +175,10 @@ def standard_workdays(period: Period, rules: Rules) -> int:
 
 class _EmployeeRun:
     def __init__(self, e: Employee, period: Period, rules: Rules, schedules: list[ScheduledShift],
-                 shifts: list[Shift], leaves: dict[date, LeaveRecord], missing_locations: set[str]):
+                 shifts: list[Shift], leaves: dict[date, LeaveRecord], missing_locations: set[str],
+                 bad_rows: Optional[dict[tuple[str, date], list[PayrollException]]] = None):
         self.e, self.period, self.rules = e, period, rules
+        self.bad_rows = bad_rows or {}
         self.schedules = sorted(schedules, key=lambda s: s.start)
         self.shifts = sorted(shifts, key=lambda s: (s.date, s.start or s.end))
         self.leaves = leaves
@@ -188,9 +190,9 @@ class _EmployeeRun:
         n_weeks = rules.period_length_days // 7
         self.weeks = [WeekHours(i + 1, period.start + timedelta(days=7 * i)) for i in range(n_weeks)]
 
-    def flag(self, code, message, *, loc=None, on=None, resolution=None):
+    def flag(self, code, message, *, loc=None, on=None, resolution=None, severity=None):
         self.found.append(exc.make(code, message, employee_id=self.e.id, location_code=loc, on=on,
-                                   resolution=resolution))
+                                   resolution=resolution, severity=severity))
 
     def sched_on(self, day: date) -> list[ScheduledShift]:
         return [s for s in self.schedules if s.date == day]
@@ -246,9 +248,19 @@ class _EmployeeRun:
         """Flag unresolved shifts, overnight shifts and store mismatches; set the pay location."""
         for s in self.shifts:
             sched = self.sched_on(s.date)
+            hint = (f"Scheduled {hhmm(sched[0].start)}-{hhmm(sched[0].end)} ({fmt_hours(sched[0].hours)} h): "
+                    f"suggested {fmt_hours(sched[0].hours)} h") if sched else "No schedule to suggest hours from"
+            if "malformed_row" in s.flags:
+                bad = "; ".join(x.message for x in self.bad_rows[(s.location_code, s.date)])
+                raw = ", ".join(f"{p.timestamp:%H:%M} {(p.kind or 'punch').upper()} (row {p.source_row})"
+                                for p in s.raw_punches) or "none"
+                self.flag("MALFORMED_ROW", f"{bad}. The day cannot be paid reliably without that punch: counted "
+                          f"as 0.00 h. Remaining punches: {raw}. {hint}", loc=s.location_code, on=s.date,
+                          severity=exc.NEEDS_REVIEW)
+                self.line.step(f"{s.date} {store(s.location_code)}", f"unreadable punch row; remaining punches "
+                               f"{raw}: 0.00 h pending review", None, date=s.date, step="shift")
+                continue
             if "missed_clock_out" in s.flags:
-                hint = (f"Scheduled {hhmm(sched[0].start)}-{hhmm(sched[0].end)} ({fmt_hours(sched[0].hours)} h): "
-                        f"suggested {fmt_hours(sched[0].hours)} h") if sched else "No schedule to suggest hours from"
                 self.flag("MISSED_CLOCK_OUT", f"IN at {hhmm(s.start)} at {store(s.location_code)} with no OUT. "
                           f"Counted as 0.00 h. {hint}", loc=s.location_code, on=s.date)
                 self.line.step(f"{s.date} {store(s.location_code)}", f"IN {hhmm(s.start)}, no OUT: 0.00 h "
@@ -403,7 +415,7 @@ class _EmployeeRun:
             rates = {self.e.rates.get(loc) for loc in week.hours_by_loc}
             if len(rates) > 1:
                 self.flag("BLENDED_RATE_OVERTIME", f"Week {week.index}: different store rates; OT premium on "
-                          f"weighted rate {fmt_money(week.weighted_rate)} = {fmt_money(week.premium)}",
+                          f"weighted rate {fmt_money(week.weighted_rate)} (unrounded in the premium) = {fmt_money(week.premium)}",
                           on=week.start, resolution="Weighted average regular rate")
 
 
@@ -412,20 +424,61 @@ def compute_premium(week: WeekHours, line: PayrollLine, rules: Rules, label: str
     """Set ``week.premium`` from the weighted regular rate and return the change in premium."""
     total = week.total_hours
     earnings = week.straight_total + extra_regular
-    week.weighted_rate = money(earnings / total)
+    # Full precision: only the premium (a money amount) is rounded. The trail shows the rate to cents.
+    week.weighted_rate = earnings / total
     factor = rules.ot_multiplier - 1
     premium = money(factor * week.weighted_rate * week.ot_hours)
     extra = f" (incl. {fmt_money(extra_regular)} add-ons)" if extra_regular else ""
     line.step(f"Week {week.index} weighted rate", f"{fmt_money(earnings)}{extra} / {fmt_hours(total)} h = "
-              f"{fmt_money(week.weighted_rate)}", week.weighted_rate, week=week.index)
-    line.step(label, f"{factor} x {fmt_money(week.weighted_rate)} weighted rate x {fmt_hours(week.ot_hours)} h = "
-              f"{fmt_money(premium)}", premium, week=week.index)
+              f"{fmt_money(week.weighted_rate)} (unrounded in the premium)", money(week.weighted_rate),
+              week=week.index, rate=week.weighted_rate)
+    line.step(label, f"{factor} x ({fmt_money(earnings)} / {fmt_hours(total)} h) x {fmt_hours(week.ot_hours)} h "
+              f"OT = {fmt_money(premium)}", premium, week=week.index)
     change = premium - week.premium
     for loc, amount in allocate(change, week.hours_by_loc).items():
         bump(line, loc, "overtime_pay", amount)
     line.overtime_pay += change
     week.premium = premium
     return change
+
+
+def settle_bad_rows(
+    bad_rows: Iterable[PayrollException], shifts: list[Shift], period: Period,
+) -> tuple[list[Shift], dict[str, dict[tuple[str, date], list[PayrollException]]], list[PayrollException]]:
+    """Decide what an unparseable row for a known employee means for pay.
+
+    A bad row dated inside the period voids that employee's day at that store: the
+    remaining punches can't be trusted to pair correctly, so the day becomes a single
+    0 h shift with the raw punches attached and is raised for review. A row whose date
+    can't be read also needs review. Only rows dated outside the period stay ``info``.
+    """
+    voided: dict[str, dict[tuple[str, date], list[PayrollException]]] = defaultdict(lambda: defaultdict(list))
+    found: list[PayrollException] = []
+    for bad in bad_rows:
+        if bad.date is None:
+            found.append(exc.make("MALFORMED_ROW", f"{bad.message}. Work date unreadable, so the affected day "
+                                  f"is unknown: check this employee's punches", employee_id=bad.employee_id,
+                                  location_code=bad.location_code, severity=exc.NEEDS_REVIEW))
+        elif not period.start <= bad.date <= period.end:
+            bad.resolution = "Row skipped: dated outside the period, no effect on pay"
+            found.append(bad)
+        else:
+            voided[bad.employee_id][(bad.location_code, bad.date)].append(bad)
+
+    kept: list[Shift] = []
+    removed: dict[tuple[str, str, date], list[Shift]] = defaultdict(list)
+    for s in shifts:
+        if (s.location_code, s.date) in voided.get(s.employee_id, {}):
+            removed[(s.employee_id, s.location_code, s.date)].append(s)
+        else:
+            kept.append(s)
+    for emp_id, days in voided.items():
+        for (loc, day) in days:
+            raw = sorted((p for s in removed[(emp_id, loc, day)] for p in s.raw_punches),
+                         key=lambda p: (p.timestamp, p.source_row))
+            start = raw[0].timestamp if raw else datetime.combine(day, time.min)
+            kept.append(Shift(emp_id, loc, day, start, None, ZERO, ["malformed_row"], raw_punches=raw))
+    return kept, {k: dict(v) for k, v in voided.items()}, found
 
 
 def run_hr_stage(
@@ -436,9 +489,12 @@ def run_hr_stage(
     period: Period,
     rules: Rules,
     missing_locations: set[str],
+    bad_rows: Iterable[PayrollException] = (),
 ) -> tuple[dict[str, EmployeeHR], list[PayrollException]]:
     punches, found = drop_duplicates(punches, rules.duplicate_window_minutes)
     shifts = [s for s in build_shifts(punches, rules) if period.start <= s.date <= period.end]
+    shifts, voided, settled = settle_bad_rows(bad_rows, shifts, period)
+    found.extend(settled)
 
     by_emp_sched: dict[str, list[ScheduledShift]] = defaultdict(list)
     for s in schedules:
@@ -455,7 +511,7 @@ def run_hr_stage(
         if e.hire_date > period.end or (e.exit_date and e.exit_date < period.start):
             continue
         run = _EmployeeRun(e, period, rules, by_emp_sched[e.id], by_emp_shift[e.id], by_emp_leave[e.id],
-                           missing_locations)
+                           missing_locations, voided.get(e.id))
         results[e.id] = run.run()
         found.extend(run.found)
     return results, found

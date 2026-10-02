@@ -37,14 +37,51 @@ def test_01_importers_normalize_each_format(inputs):
         ("E16", "in", "2026-09-07 22:00:00"), ("E16", "out", "2026-09-08 06:00:00")]
 
 
-def test_01_malformed_rows_and_unknown_columns_are_exceptions(result, scenario):
-    s = scenario(1, code="MALFORMED_ROW")
-    bad = only(result.exceptions_for("MALFORMED_ROW", s["employee"]))
-    assert (bad.severity, bad.location_code) == ("info", "A")
-    assert "9:6O" in bad.message and bad.resolution == "Row skipped"
+def test_01_unknown_column_is_info(result, scenario):
     col = only(result.exceptions_for("UNKNOWN_COLUMN"))
     assert (col.severity, col.location_code) == ("info", scenario(1, code="UNKNOWN_COLUMN")["location"])
     assert "'Dept'" in col.message
+
+
+def test_01_malformed_row_holds_the_day_for_review(result, scenario):
+    # Row 'E02 2026-09-09 9:6O IN' fails to parse. The day's other punches (09:00 IN, 17:00 OUT)
+    # would pair into 8 h, but without knowing what the bad punch was, that pay would be a guess.
+    s = scenario(1, code="MALFORMED_ROW", severity="needs_review")
+    bad = only(result.exceptions_for("MALFORMED_ROW", s["employee"]))
+    assert (bad.severity, bad.auto_resolved, bad.date, bad.location_code) == (
+        "needs_review", False, s["date"], s["location"])
+    assert "9:6O" in bad.message
+    assert "Remaining punches: 09:00 IN (row" in bad.message and "17:00 OUT (row" in bad.message
+    assert f"suggested {s['scheduled_hours']} h" in bad.message
+
+    line = result.line_for(s["employee"])
+    assert shift_hours(line, s["date"]) == []  # not paid from the remaining punches
+    assert line.regular_pay == D("1144.00")  # 71.50 h x $16.00: 9 Sep held at 0 h
+    assert not [e for e in result.exceptions_for(employee_id=s["employee"])
+                if e.date == s["date"] and e.code != "MALFORMED_ROW"]  # no late/absence invented
+
+
+def test_01_malformed_row_outside_period_stays_info(result, scenario):
+    s = scenario(1, code="MALFORMED_ROW", severity="info")
+    bad = only(result.exceptions_for("MALFORMED_ROW", s["employee"]))
+    assert (bad.severity, bad.auto_resolved, bad.date) == ("info", True, s["date"])
+    assert "outside the period" in bad.resolution
+    assert result.line_for(s["employee"]).regular_pay == D("1116.00")  # unchanged, see scenario 4
+
+
+def test_01_malformed_row_with_unreadable_date_needs_review(inputs, rules):
+    store_a = inputs.time_files["A"].read_text() + "1005,2026-13-40,09:00,IN\n"
+    res = run_payroll(replace(inputs, time_files={**inputs.time_files, "A": io.StringIO(store_a)}), rules)
+    bad = only(res.exceptions_for("MALFORMED_ROW", "E05"))
+    assert (bad.severity, bad.date) == ("needs_review", None)
+    assert "Work date unreadable" in bad.message
+
+
+def test_01_store_b_malformed_row_still_locates_the_day(inputs):
+    _, found = StoreBImporter("B", inputs.employees).parse(io.StringIO(
+        "employee_code,punch_datetime\nRV-202,09/09/2026 9:6O AM\nRV-202,\n"))
+    assert [(e.code, e.employee_id, e.date) for e in found] == [
+        ("MALFORMED_ROW", "E08", date(2026, 9, 9)), ("MALFORMED_ROW", "E08", None)]
 
 
 def test_01_unreadable_file_is_blocking_not_a_crash(inputs, rules):
@@ -215,9 +252,15 @@ def test_12_ot_premium_on_weighted_average_rate(result, scenario):
     line = result.line_for(s["employee"])
     assert only(steps(line, "Week 2 straight time Store B")).amount == D("216.00")  # 12 h x $18
     assert only(steps(line, "Week 2 straight time Store A")).amount == D("512.00")  # 32 h x $16
+    # The weighted rate keeps full precision: 0.5 x (728 / 44) x 4 = 33.0909 -> $33.09.
+    # Rounding the rate to $16.55 first would give $33.10.
+    rate = only(steps(line, f"Week {s['week']} weighted rate"))
+    assert rate.amount == D(s["weighted_rate"])  # shown to cents
+    assert D(rate.refs["rate"]) == D("728.00") / D("44.00")  # used unrounded
     premium = only(steps(line, f"Week {s['week']} OT premium"))
-    assert premium.formula == f"0.5 x ${s['weighted_rate']} weighted rate x {s['ot_hours']} h = ${s['premium']}"
-    assert line.overtime_pay == D(s["premium"])
+    assert premium.formula == f"0.5 x ($728.00 / 44.00 h) x {s['ot_hours']} h OT = ${s['premium']}"
+    assert premium.amount == D("33.09")
+    assert line.overtime_pay == D("33.09")
     # Premium is allocated to stores by hours worked that week.
     assert line.by_location["A"]["overtime_pay"] + line.by_location["B"]["overtime_pay"] == D(s["premium"])
 

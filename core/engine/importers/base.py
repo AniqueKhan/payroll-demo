@@ -10,7 +10,8 @@ import io
 from abc import ABC, abstractmethod
 from collections import Counter
 from pathlib import Path
-from typing import IO, Iterable, Union
+from datetime import date
+from typing import IO, Iterable, Optional, Union
 
 from .. import exceptions as exc
 from ..types import Employee, PayrollException, Punch
@@ -45,6 +46,10 @@ class Importer(ABC):
     @abstractmethod
     def row_identifier(self, row: dict[str, str]) -> str:
         """The store's own employee identifier for this row."""
+
+    def row_date(self, row: dict[str, str]) -> Optional[date]:
+        """Best-effort work date of a row, used to locate the day a bad row belongs to."""
+        return None
 
     def parse(self, file: FileLike) -> tuple[list[Punch], list[PayrollException]]:
         found: list[PayrollException] = []
@@ -84,11 +89,17 @@ class Importer(ABC):
             try:
                 punches.extend(self.parse_row(row, employee_id, source_row))
             except (RowError, ValueError) as e:
+                try:
+                    on = self.row_date(row)
+                except (ValueError, IndexError):
+                    on = None
+                # Severity is settled later by the HR stage, which knows the period and the schedule.
                 found.append(exc.make(
                     "MALFORMED_ROW",
                     f"Store {self.location_code} row {source_row}: {e} ({', '.join(row.values())})",
                     employee_id=employee_id,
                     location_code=self.location_code,
+                    on=on,
                     resolution="Row skipped",
                 ))
         for ident, count in unknown.items():

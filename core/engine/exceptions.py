@@ -19,6 +19,7 @@ CODES: dict[str, tuple[str, str]] = {
     # Imports (scenarios 1, 2)
     "FILE_UNREADABLE": (BLOCKING, "Time clock file could not be read"),
     "UNKNOWN_COLUMN": (INFO, "Unexpected column ignored"),
+    # info only when the row cannot affect pay; the HR stage raises it to needs_review otherwise
     "MALFORMED_ROW": (INFO, "Row could not be parsed and was skipped"),
     "UNKNOWN_EMPLOYEE": (NEEDS_REVIEW, "Identifier not mapped to any employee"),
     "STORE_FILE_MISSING": (BLOCKING, "No time clock import for an expected store"),

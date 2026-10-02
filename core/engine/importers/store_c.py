@@ -17,6 +17,9 @@ class StoreCImporter(Importer):
     def row_identifier(self, row):
         return row["Name"]
 
+    def row_date(self, row):
+        return date.fromisoformat(row["Date"])
+
     def parse_row(self, row, employee_id, source_row):
         try:
             day = date.fromisoformat(row["Date"])
