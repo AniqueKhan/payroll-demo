@@ -1,0 +1,75 @@
+{% extends "core/base.html" %}
+{% load payroll_ui %}
+{% block title %}Payroll{% endblock %}
+{% block content %}
+<section class="intro">
+  <h1>Payroll summary</h1>
+  <p class="lead">The "after": one line per employee. Open a row to see every step of the calculation.</p>
+</section>
+
+<section class="card">
+  <p class="small muted">
+    Deductions = penalties + loans and advances + custom deductions. Absence deductions are already taken out of gross.
+    {% if sort == "gross" %}<a href="{% url 'core:payroll' run.pk %}">Sort by employee</a>{% else %}<a href="?sort=gross">Sort by gross</a>{% endif %}
+  </p>
+  <div class="table-wrap">
+    <table class="payroll">
+      <thead>
+        <tr>
+          <th>Employee</th><th>Home store</th><th>Pay type</th>
+          <th class="num">Reg. hours</th><th class="num">OT hours</th>
+          <th class="num">Regular pay</th><th class="num">OT pay</th><th class="num">Add-ons</th>
+          <th class="num">Deductions</th><th class="num">Gross</th><th class="num">Net</th><th>Exceptions</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for line in lines %}
+        {% with emp=line.employee marker=markers|get:line.employee.employee_id %}
+        <tr class="clickable">
+          <td><a class="rowlink" href="{% url 'core:employee' run.pk emp.employee_id %}">{{ emp.name }}</a> <span class="muted small">{{ emp.employee_id }}</span></td>
+          <td>Store {{ emp.home_location.code }}</td>
+          <td>{{ emp.get_pay_type_display }}</td>
+          <td class="num">{{ line.regular_hours|hours }}</td>
+          <td class="num">{{ line.overtime_hours|hours }}</td>
+          <td class="num">{{ line.regular_pay|money }}</td>
+          <td class="num">{{ line.overtime_pay|money }}</td>
+          <td class="num">{{ line.addons|money }}</td>
+          <td class="num">{{ line.deductions|money }}</td>
+          <td class="num"><strong>{{ line.gross|money }}</strong></td>
+          <td class="num"><strong>{{ line.net|money }}</strong></td>
+          <td>{% if marker %}<span class="pill pill-{{ marker.state }}">{{ marker.label }}</span> <span class="muted small">{{ marker.count }}</span>{% endif %}</td>
+        </tr>
+        {% endwith %}
+      {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <th colspan="3">Total ({{ lines|length }} employees)</th>
+          <td class="num">{{ totals.regular_hours|hours }}</td>
+          <td class="num">{{ totals.overtime_hours|hours }}</td>
+          <td class="num">{{ totals.regular_pay|money }}</td>
+          <td class="num">{{ totals.overtime_pay|money }}</td>
+          <td class="num">{{ totals.addons|money }}</td>
+          <td class="num">{{ totals.deductions|money }}</td>
+          <td class="num"><strong>{{ totals.gross|money }}</strong></td>
+          <td class="num"><strong>{{ totals.net|money }}</strong></td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// The whole row opens the employee page; the name link keeps it keyboard and no-JS friendly.
+document.querySelectorAll("tr.clickable").forEach(function (tr) {
+  tr.addEventListener("click", function (e) {
+    if (e.target.closest("a")) return;
+    var link = tr.querySelector("a.rowlink");
+    if (link) window.location = link.href;
+  });
+});
+</script>
+{% endblock %}

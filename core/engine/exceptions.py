@@ -61,6 +61,8 @@ def make(
     on: Optional[date] = None,
     severity: Optional[str] = None,
     resolution: Optional[str] = None,
+    rows: Optional[list[tuple[str, int]]] = None,
+    context: Optional[dict] = None,
 ) -> PayrollException:
     default_severity, _ = CODES[code]
     severity = severity or default_severity
@@ -74,4 +76,10 @@ def make(
         # info exceptions are settled by a rule; the resolution says which.
         auto_resolved=severity == INFO,
         resolution=resolution,
+        rows=sorted(set(rows or [])),
+        context={k: str(v) if not isinstance(v, (list, dict)) else v for k, v in (context or {}).items()},
     )
+
+
+# Codes whose day a reviewer can settle by setting the hours worked.
+HOURS_CODES = ("MISSED_CLOCK_OUT", "MISSED_CLOCK_IN", "ODD_PUNCH_COUNT", "MALFORMED_ROW")

@@ -1,0 +1,11 @@
+{% extends "core/base.html" %}
+{% block title %}No payroll yet{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>No payroll run yet</h1>
+  <p>Load the demo data and run payroll first:</p>
+  <pre class="code">python manage.py seed_demo
+python manage.py run_payroll --period 2026-09-07</pre>
+  <p>Then reload this page.</p>
+</section>
+{% endblock %}

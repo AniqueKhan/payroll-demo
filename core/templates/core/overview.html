@@ -1,0 +1,90 @@
+{% extends "core/base.html" %}
+{% load payroll_ui %}
+{% block title %}Overview{% endblock %}
+{% block content %}
+<section class="intro">
+  <h1>Payroll overview</h1>
+  <p class="lead">3 stores' time clock exports in, every problem flagged, payroll finalized only after review.</p>
+</section>
+
+{% if not is_final %}
+  {% if blocking_count %}
+  <a class="cta cta-red" href="{% url 'core:exceptions' run.pk %}#blocking">
+    <strong>{{ blocking_count }} blocking problem{{ blocking_count|pluralize }}</strong>
+    <span>must be fixed at the input before payroll can be finalized</span>
+  </a>
+  {% endif %}
+  {% if open_count %}
+  <a class="cta" href="{% url 'core:exceptions' run.pk %}#needs_review">
+    <strong>{{ open_count }} item{{ open_count|pluralize }} need{{ open_count|pluralize:"s," }} your review</strong>
+    <span>Open the review queue →</span>
+  </a>
+  {% elif not blocking_count %}
+  <div class="cta cta-green">
+    <strong>Everything is reviewed</strong>
+    <span>{{ approved_count }} decision{{ approved_count|pluralize }} recorded. Payroll is ready to finalize.</span>
+  </div>
+  {% endif %}
+{% endif %}
+
+<section class="grid stats">
+  <div class="stat"><span class="stat-label">Period</span><span class="stat-value small">{{ period.start_date|date:"M j" }} – {{ period.end_date|date:"M j, Y" }}</span></div>
+  <div class="stat"><span class="stat-label">Status</span><span class="stat-value small">{% if is_final %}Finalized{% else %}Draft{% endif %}</span></div>
+  <div class="stat"><span class="stat-label">Employees</span><span class="stat-value">{{ totals.employees }}</span></div>
+  <div class="stat"><span class="stat-label">Total gross</span><span class="stat-value num">{{ totals.gross|money }}</span></div>
+  <div class="stat"><span class="stat-label">Total net</span><span class="stat-value num">{{ totals.net|money }}</span></div>
+</section>
+
+<div class="grid two">
+  <section class="card">
+    <h2>Totals per store</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Store</th><th class="num">Hours</th><th class="num">Gross cost</th></tr></thead>
+        <tbody>
+        {% for s in stores %}
+          <tr><td><strong>{{ s.code }}</strong> {{ s.name }}</td><td class="num">{{ s.hours|hours }}</td><td class="num">{{ s.gross|money }}</td></tr>
+        {% endfor %}
+        </tbody>
+        <tfoot><tr><th>Total</th><td></td><td class="num"><strong>{{ totals.gross|money }}</strong></td></tr></tfoot>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Exceptions</h2>
+    <ul class="sev-list">
+      {% for sev, count in severity_counts %}
+        <li><span class="pill pill-{{ sev }}">{{ sev|severity_label }}</span> <strong>{{ count }}</strong>
+          {% if sev == "needs_review" %}<span class="muted">({{ open_count }} open, {{ approved_count }} reviewed)</span>{% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+    <p><a href="{% url 'core:exceptions' run.pk %}">Open the review queue →</a></p>
+  </section>
+</div>
+
+<section class="card">
+  <h2>Finalize</h2>
+  {% if is_final %}
+    <p>Finalized {{ run.finalized_at|date:"M j, Y H:i" }}. Loan and advance deductions have been posted.</p>
+    <form method="post" action="{% url 'core:reopen' run.pk %}">
+      {% csrf_token %}
+      <button class="btn btn-secondary" type="submit">Reopen as draft</button>
+      <span class="muted small">Demo only: takes back the loan postings so you can walk through again.</span>
+    </form>
+  {% else %}
+    <form method="post" action="{% url 'core:finalize' run.pk %}">
+      {% csrf_token %}
+      <button class="btn" type="submit" {% if blockers %}disabled aria-describedby="finalize-why"{% endif %}>Finalize payroll</button>
+    </form>
+    {% if blockers %}
+      <ul class="why" id="finalize-why">
+        {% for reason in blockers %}<li>Not yet: {{ reason }}</li>{% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No blocking problems and nothing left open. Finalizing locks this period.</p>
+    {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

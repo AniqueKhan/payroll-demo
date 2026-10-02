@@ -3,13 +3,13 @@ from __future__ import annotations
 
 from collections import defaultdict
 from decimal import Decimal
-from typing import Iterable
+from typing import Iterable, Optional
 
 from . import exceptions as exc
 from .config import Rules
 from .explain import fmt_hours, fmt_money, fmt_pct, money
 from .hr_stage import EmployeeHR, bump, compute_premium
-from .types import ZERO, LoanAdvance, PayAddOn, PayrollException, Period
+from .types import ZERO, Adjustments, LoanAdvance, PayAddOn, PayrollException, Period, exception_key
 
 
 def apply_addons(hr: EmployeeHR, addons: list[PayAddOn], rules: Rules) -> list[PayrollException]:
@@ -55,7 +55,9 @@ def compute_gross(hr: EmployeeHR) -> None:
                            - bucket["absence_deductions"])
 
 
-def apply_loans(hr: EmployeeHR, loans: list[LoanAdvance], period: Period, rules: Rules) -> list[PayrollException]:
+def apply_loans(hr: EmployeeHR, loans: list[LoanAdvance], period: Period, rules: Rules,
+                adjustments: Optional[Adjustments] = None,
+                applied: Optional[dict[str, str]] = None) -> list[PayrollException]:
     found: list[PayrollException] = []
     e, line = hr.employee, hr.line
     exiting = e.exit_date is not None and period.start <= e.exit_date <= period.end
@@ -71,8 +73,20 @@ def apply_loans(hr: EmployeeHR, loans: list[LoanAdvance], period: Period, rules:
         remaining = money(ln.remaining)
         final = exiting and rules.final_pay_deducts_balance
         due = remaining if final else min(money(ln.installment), remaining)
-        take = min(due, cap_left)
-        cap_left -= take
+        capped_take = min(due, cap_left)
+        take = capped_take
+        override = adjustments.loan_for(e.id, ln.kind) if adjustments and not final else None
+        if override and capped_take < due:
+            if not ZERO <= override.amount <= money(ln.installment):
+                raise ValueError(f"Loan override for {e.id} must be between $0.00 and the installment "
+                                 f"{fmt_money(ln.installment)}")
+            take = min(money(override.amount), remaining)
+            line.adjustment(f"{ln.kind} deduction", f"engine capped at {fmt_money(capped_take)}; reviewer set "
+                            f"{fmt_money(take)}", override.note, take)
+            if applied is not None:
+                applied[exception_key("LOAN_CAPPED", e.id, period.end, None)] = (
+                    f"Reviewer set the deduction to {fmt_money(take)}" + (f": {override.note}" if override.note else ""))
+        cap_left = max(cap_left - take, ZERO)
         line.loan_deductions += take
         after = remaining - take
         label = f"{ln.kind.title()} {'final balance' if final else 'installment'}"
@@ -80,14 +94,16 @@ def apply_loans(hr: EmployeeHR, loans: list[LoanAdvance], period: Period, rules:
                   loan=ln.ref or "")
         if final:
             unsettled += after
-        elif take < due:
-            carry = due - take
+        elif capped_take < due:
+            carry = due - capped_take
             found.append(exc.make(
                 "LOAN_CAPPED",
                 f"{ln.kind.title()} installment {fmt_money(due)} exceeds cap {fmt_money(cap)} "
-                f"({fmt_pct(rules.loan_cap_percent)} of {fmt_money(net_before)}); deducted {fmt_money(take)}, "
-                f"{fmt_money(carry)} carried to next period (balance after: {fmt_money(after)})",
+                f"({fmt_pct(rules.loan_cap_percent)} of {fmt_money(net_before)}); deducted {fmt_money(capped_take)}, "
+                f"{fmt_money(carry)} carried to next period (balance after: {fmt_money(remaining - capped_take)})",
                 employee_id=e.id, on=period.end,
+                context={"loan_kind": ln.kind, "installment": money(ln.installment), "cap": cap,
+                         "deducted": capped_take},
             ))
         else:
             found.append(exc.make(
@@ -112,6 +128,8 @@ def run_finance_stage(
     loans: Iterable[LoanAdvance],
     period: Period,
     rules: Rules,
+    adjustments: Optional[Adjustments] = None,
+    applied: Optional[dict[str, str]] = None,
 ) -> list[PayrollException]:
     found: list[PayrollException] = []
     addons_by_emp: dict[str, list[PayAddOn]] = defaultdict(list)
@@ -123,7 +141,8 @@ def run_finance_stage(
         loans_by_emp[ln.employee_id].append(ln)
 
     for emp_id, emp_hr in hr.items():
+        emp_hr.line.stage = "finance"
         found.extend(apply_addons(emp_hr, addons_by_emp[emp_id], rules))
         compute_gross(emp_hr)
-        found.extend(apply_loans(emp_hr, loans_by_emp[emp_id], period, rules))
+        found.extend(apply_loans(emp_hr, loans_by_emp[emp_id], period, rules, adjustments, applied))
     return found

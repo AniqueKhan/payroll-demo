@@ -98,6 +98,7 @@ def apply_custom_rules(rules_config: list[dict], lines: list[PayrollLine]) -> li
         fn, _ = REGISTRY[rule["type"]]
         total = Decimal("0.00")
         for line in lines:
+            line.stage = "custom"
             if line.gross <= 0:
                 line.step(rule["label"], "not applied: no gross pay this period", Decimal("0.00"))
                 continue

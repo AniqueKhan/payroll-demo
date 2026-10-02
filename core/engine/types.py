@@ -104,12 +104,20 @@ class LoanAdvance:
         return self.total - self.paid_to_date
 
 
+STAGES = ("hr", "finance", "custom")
+
+
 @dataclass(frozen=True)
 class CalcStep:
     label: str
     formula: str
     amount: Optional[Decimal]
     refs: dict = field(default_factory=dict)
+    stage: str = "hr"  # hr | finance | custom
+
+    @property
+    def is_adjustment(self) -> bool:
+        return self.label.startswith(ADJUSTMENT_LABEL)
 
     def to_dict(self) -> dict:
         return {
@@ -117,7 +125,11 @@ class CalcStep:
             "formula": self.formula,
             "amount": None if self.amount is None else str(self.amount),
             "refs": self.refs,
+            "stage": self.stage,
         }
+
+
+ADJUSTMENT_LABEL = "Reviewer adjustment"
 
 
 ZERO = Decimal("0.00")
@@ -137,9 +149,17 @@ class PayrollLine:
     net: Decimal = ZERO
     by_location: dict = field(default_factory=dict)
     trail: list[CalcStep] = field(default_factory=list)
+    hours: Decimal = ZERO  # hours worked and paid (leave excluded)
+    ot_hours: Decimal = ZERO
+    stage: str = "hr"  # stage that new trail steps are filed under
 
     def step(self, label: str, formula: str, amount: Optional[Decimal] = None, **refs) -> None:
-        self.trail.append(CalcStep(label, formula, amount, {k: str(v) for k, v in refs.items()}))
+        self.trail.append(CalcStep(label, formula, amount, {k: str(v) for k, v in refs.items()}, self.stage))
+
+    def adjustment(self, what: str, formula: str, note: str, amount: Optional[Decimal] = None, **refs) -> None:
+        """Trail step recording that a reviewer changed the engine's default."""
+        note = f" (note: {note})" if note else ""
+        self.step(f"{ADJUSTMENT_LABEL}: {what}", f"{formula}{note}", amount, adjustment=1, **refs)
 
 
 @dataclass
@@ -152,6 +172,80 @@ class PayrollException:
     message: str
     auto_resolved: bool = False
     resolution: Optional[str] = None
+    rows: list[tuple[str, int]] = field(default_factory=list)  # (location_code, source_row) involved
+    context: dict = field(default_factory=dict)  # structured facts for reviewers (suggested hours, ...)
+    adjusted: bool = False  # a reviewer adjustment was applied for this exception
+
+    @property
+    def key(self) -> str:
+        return exception_key(self.code, self.employee_id, self.date, self.location_code)
+
+
+def exception_key(code: str, employee_id: Optional[str], on: Optional[date], location_code: Optional[str]) -> str:
+    """Stable identity of an exception across re-runs: ``code|employee_id|date|location_code``."""
+    return "|".join([code, employee_id or "", on.isoformat() if on else "", location_code or ""])
+
+
+def parse_exception_key(key: str) -> tuple[str, Optional[str], Optional[date], Optional[str]]:
+    code, employee_id, on, loc = key.split("|")
+    return code, employee_id or None, date.fromisoformat(on) if on else None, loc or None
+
+
+# ---------------------------------------------------------------- reviewer adjustments
+
+@dataclass(frozen=True)
+class HoursOverride:
+    employee_id: str
+    date: date
+    location_code: str
+    hours: Decimal
+    note: str = ""
+
+
+@dataclass(frozen=True)
+class LocationOverride:
+    employee_id: str
+    date: date
+    location_code: str  # store to pay at and allocate cost to
+    note: str = ""
+
+
+@dataclass(frozen=True)
+class LeaveOverride:
+    employee_id: str
+    date: date
+    leave_type: str
+    note: str = ""
+
+
+@dataclass(frozen=True)
+class LoanOverride:
+    employee_id: str
+    loan_kind: str
+    amount: Decimal
+    note: str = ""
+
+
+@dataclass
+class Adjustments:
+    """Reviewer decisions that replace the engine's default handling for one employee and date."""
+    hours_overrides: list[HoursOverride] = field(default_factory=list)
+    location_overrides: list[LocationOverride] = field(default_factory=list)
+    leave_overrides: list[LeaveOverride] = field(default_factory=list)
+    loan_overrides: list[LoanOverride] = field(default_factory=list)
+
+    def hours_for(self, employee_id: str, day: date, loc: str) -> Optional[HoursOverride]:
+        return next((o for o in self.hours_overrides
+                     if (o.employee_id, o.date, o.location_code) == (employee_id, day, loc)), None)
+
+    def location_for(self, employee_id: str, day: date) -> Optional[LocationOverride]:
+        return next((o for o in self.location_overrides if (o.employee_id, o.date) == (employee_id, day)), None)
+
+    def leave_for(self, employee_id: str, day: date) -> Optional[LeaveOverride]:
+        return next((o for o in self.leave_overrides if (o.employee_id, o.date) == (employee_id, day)), None)
+
+    def loan_for(self, employee_id: str, kind: str) -> Optional[LoanOverride]:
+        return next((o for o in self.loan_overrides if (o.employee_id, o.loan_kind) == (employee_id, kind)), None)
 
 
 @dataclass(frozen=True)
