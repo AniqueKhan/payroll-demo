@@ -13,17 +13,18 @@ python manage.py run_payroll --period 2026-09-07
 pytest
 ```
 
-## Running the screens
+## Settings
 
-`payroll/settings.py` ships with an empty `SECRET_KEY` and `DEBUG = False`. The screens need a key, and `DEBUG = True` serves the stylesheet locally. Set both in the gitignored `payroll/environment.py`:
+Secrets and per-environment values live in `payroll/environment.py`, next to `settings.py`. That file is gitignored and imported at the end of `settings.py`. `settings.py` itself ships with an empty `SECRET_KEY`. Everything reads its key from `environment.py`: the screens, sessions and messages, and the test suite. For local development:
 
 ```python
-SECRET_KEY = "dev-only-change-me"
-DEBUG = True
+# payroll/environment.py
+SECRET_KEY = "your-local-secret-key"
+DEBUG = True  # serves core/static/core/demo.css with runserver
 ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
 ```
 
-Then run `python manage.py runserver` and open http://127.0.0.1:8000/. The tests use `payroll/settings_test.py`, which supplies a throwaway key when none is set.
+Then run `python manage.py runserver` and open http://127.0.0.1:8000/.
 
 The demo story:
 1. **Overview** shows that 7 items need review.
