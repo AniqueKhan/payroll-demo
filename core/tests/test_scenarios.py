@@ -43,29 +43,47 @@ def test_01_unknown_column_is_info(result, scenario):
     assert "'Dept'" in col.message
 
 
-def test_01_malformed_row_holds_the_day_for_review(result, scenario):
+def test_01_malformed_row_paid_from_remaining_punches_needs_review(result, scenario):
     # Row 'E02 2026-09-09 9:6O IN' fails to parse. The day's other punches (09:00 IN, 17:00 OUT)
-    # would pair into 8 h, but without knowing what the bad punch was, that pay would be a guess.
+    # pair cleanly, so the day is paid from them and a person confirms nothing was lost.
     s = scenario(1, code="MALFORMED_ROW", severity="needs_review")
     bad = only(result.exceptions_for("MALFORMED_ROW", s["employee"]))
     assert (bad.severity, bad.auto_resolved, bad.date, bad.location_code) == (
         "needs_review", False, s["date"], s["location"])
     assert "9:6O" in bad.message
-    assert "Remaining punches: 09:00 IN (row" in bad.message and "17:00 OUT (row" in bad.message
-    assert f"suggested {s['scheduled_hours']} h" in bad.message
+    assert bad.message.endswith(f"Paid {s['paid_hours']} h from the remaining punches; confirm the unreadable "
+                                f"punch was not a real break or extra shift.")
 
     line = result.line_for(s["employee"])
-    assert shift_hours(line, s["date"]) == []  # not paid from the remaining punches
-    assert line.regular_pay == D("1144.00")  # 71.50 h x $16.00: 9 Sep held at 0 h
+    assert shift_hours(line, s["date"]) == [D(s["paid_hours"])]
+    assert line.regular_pay == D("1272.00")  # 79.50 h x $16.00, 9 Sep included
     assert not [e for e in result.exceptions_for(employee_id=s["employee"])
-                if e.date == s["date"] and e.code != "MALFORMED_ROW"]  # no late/absence invented
+                if e.date == s["date"] and e.code != "MALFORMED_ROW"]
+
+
+def test_01_malformed_row_with_unpairable_remainder_counts_zero(inputs, rules):
+    # E05 on 8 Sep: the OUT row is unreadable, leaving a lone IN that cannot be paired.
+    lines = inputs.time_files["A"].read_text().splitlines()
+    out_row = "1005,2026-09-08,17:00,OUT"
+    assert out_row in lines
+    store_a = "\n".join(x if x != out_row else "1005,2026-09-08,1X:00,OUT" for x in lines) + "\n"
+    res = run_payroll(replace(inputs, time_files={**inputs.time_files, "A": io.StringIO(store_a)}), rules)
+
+    bad = only(res.exceptions_for("MALFORMED_ROW", "E05"))
+    assert (bad.severity, bad.date) == ("needs_review", date(2026, 9, 8))
+    assert "remaining punches cannot be paired: counted as 0.00 h" in bad.message
+    assert "Remaining punches: 09:00 IN (row" in bad.message and "suggested 8.00 h" in bad.message
+    assert not res.exceptions_for("MISSED_CLOCK_OUT", "E05")  # one review item for the day, not two
+    line = res.line_for("E05")
+    assert shift_hours(line, date(2026, 9, 8)) == []
+    assert line.regular_pay == D("1186.35")  # 71.90 h x $16.50: 8 Sep held at 0 h
 
 
 def test_01_malformed_row_outside_period_stays_info(result, scenario):
     s = scenario(1, code="MALFORMED_ROW", severity="info")
     bad = only(result.exceptions_for("MALFORMED_ROW", s["employee"]))
     assert (bad.severity, bad.auto_resolved, bad.date) == ("info", True, s["date"])
-    assert "outside the period" in bad.resolution
+    assert bad.message.endswith("outside this pay period, no effect on pay")
     assert result.line_for(s["employee"]).regular_pay == D("1116.00")  # unchanged, see scenario 4
 
 

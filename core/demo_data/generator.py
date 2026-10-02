@@ -160,8 +160,8 @@ def apply_scenarios(shifts: list[dict]) -> tuple[list[dict], dict]:
             {"employee": emp, "date": day.isoformat() if day else None, "location": location, **extra})
 
     # 1: malformed rows in store A, unexpected column in store C (all added when writing files)
-    record(1, "E02", d(9), "A", code="MALFORMED_ROW", severity="needs_review", scheduled_hours="8.00",
-           note="row with time '9:6O' inside the period: the day is held at 0 h for review")
+    record(1, "E02", d(9), "A", code="MALFORMED_ROW", severity="needs_review", paid_hours="8.00",
+           note="row with time '9:6O' inside the period: remaining punches pair, paid and flagged for review")
     record(1, "E03", date(2026, 9, 6), "A", code="MALFORMED_ROW", severity="info",
            note="row with time '18:3O' dated before the period: no effect on pay")
     record(1, None, None, "C", code="UNKNOWN_COLUMN", note="extra 'Dept' column")
