@@ -1,0 +1,63 @@
+# Demo Retail Co. payroll rules.
+# Every threshold, rate and penalty the engine uses comes from this file.
+# Money values are quoted so they load as exact decimals.
+
+company: Demo Retail Co.
+currency: USD
+
+period:
+  length_days: 14
+  week_start: monday
+
+# Stores that must deliver a time clock export every period (scenario 2).
+expected_locations: [A, B, C]
+
+overtime:
+  weekly_threshold_hours: "40"
+  multiplier: "1.5"
+  method: weighted_average        # premium = (multiplier - 1) x weighted regular rate x OT hours
+  exempt_pay_types: [salaried]
+
+duplicate_punch_window_minutes: 2
+
+punch_pairing:
+  max_shift_hours: 16             # IN/OUT further apart than this are not paired
+  cluster_gap_hours: 12           # exports without IN/OUT: a gap this long starts a new work day
+
+late:
+  grace_minutes: 10
+  penalty_per_late: "5.00"
+
+half_day:
+  threshold_fraction: "0.5"       # salaried: worked < 50% of scheduled hours -> deduct half a day
+
+absence:
+  # Salaried daily rate = salary_per_period / scheduled working days in the period
+  standard_workdays: [mon, tue, wed, thu, fri]
+  uninformed_penalty: "25.00"
+
+leave_types:
+  - {code: sick, paid: true}
+  - {code: vacation, paid: true}
+  - {code: unpaid, paid: false}
+
+loans:
+  max_deduction_percent_of_net: "20"   # % of net pay before loan deductions
+  carry_over: true
+
+final_pay:
+  deduct_remaining_loan_balance: true  # up to the loans cap above; the rest is flagged
+
+# Company-specific deductions, applied after the finance stage in the order listed.
+custom_rules:
+  - type: percent_of_gross
+    label: Retirement contribution
+    rate_percent: "3"
+    cap: "100.00"
+  - type: table_lookup
+    label: Company deduction table
+    basis: gross
+    brackets:
+      - {from: "0", to: "1000", flat: "5.00"}
+      - {from: "1000", to: "1500", rate_percent: "1"}
+      - {from: "1500", to: null, rate_percent: "1.5"}
