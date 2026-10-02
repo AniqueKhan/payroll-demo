@@ -1,6 +1,9 @@
+import uuid
 from pathlib import Path
 
 from django.db import models
+from django.db.models import Q
+from django.utils import timezone
 
 
 class Location(models.Model):
@@ -119,11 +122,29 @@ class RawImportRow(models.Model):
         constraints = [models.UniqueConstraint(fields=["batch", "row_number"], name="unique_raw_row")]
 
 
+class DemoSandbox(models.Model):
+    """One visitor's private copy of the demo: their payroll run and review decisions.
+
+    Inputs (employees, schedules, raw rows, leaves, add-ons, loans) stay shared and read-only.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ["-last_seen_at"]
+
+    def __str__(self):
+        return f"Sandbox {self.id}"
+
+
 class PayrollRun(models.Model):
     DRAFT, FINALIZED = "draft", "finalized"
     STATUSES = [(DRAFT, "Draft"), (FINALIZED, "Finalized")]
 
     period = models.ForeignKey(PayPeriod, on_delete=models.CASCADE, related_name="runs")
+    # NULL = the baseline run, which the web never modifies.
+    sandbox = models.ForeignKey(DemoSandbox, on_delete=models.CASCADE, null=True, blank=True, related_name="runs")
     status = models.CharField(max_length=10, choices=STATUSES, default=DRAFT)
     created_at = models.DateTimeField(auto_now_add=True)
     finalized_at = models.DateTimeField(null=True, blank=True)
@@ -132,9 +153,17 @@ class PayrollRun(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            # One draft per (period, sandbox). Separate constraints because NULLs are distinct in UNIQUE.
+            models.UniqueConstraint(fields=["period"], condition=Q(status="draft", sandbox__isnull=True),
+                                    name="one_baseline_draft_per_period"),
+            models.UniqueConstraint(fields=["period", "sandbox"], condition=Q(status="draft", sandbox__isnull=False),
+                                    name="one_sandbox_draft_per_period"),
+        ]
 
     def __str__(self):
-        return f"Run {self.pk} {self.period} ({self.status})"
+        where = f"sandbox {self.sandbox_id}" if self.sandbox_id else "baseline"
+        return f"Run {self.pk} {self.period} ({self.status}, {where})"
 
 
 class PayrollLineRecord(models.Model):
@@ -201,6 +230,9 @@ class ReviewDecision(models.Model):
     ACTIONS = [(APPROVE, "Approve as is"), (APPROVE_WITH_VALUE, "Approve with value")]
 
     period = models.ForeignKey(PayPeriod, on_delete=models.CASCADE, related_name="decisions")
+    # NULL = baseline decision (management commands only; the web always writes to a sandbox).
+    sandbox = models.ForeignKey(DemoSandbox, on_delete=models.CASCADE, null=True, blank=True,
+                                related_name="decisions")
     exception_key = models.CharField(max_length=120)
     action = models.CharField(max_length=20, choices=ACTIONS)
     value = models.JSONField(null=True, blank=True)  # {"hours": "8.00"} / {"location": "A"} / ...
@@ -209,7 +241,12 @@ class ReviewDecision(models.Model):
 
     class Meta:
         ordering = ["decided_at"]
-        constraints = [models.UniqueConstraint(fields=["period", "exception_key"], name="one_decision_per_exception")]
+        constraints = [
+            models.UniqueConstraint(fields=["period", "exception_key"], condition=Q(sandbox__isnull=True),
+                                    name="one_baseline_decision_per_exception"),
+            models.UniqueConstraint(fields=["period", "sandbox", "exception_key"],
+                                    condition=Q(sandbox__isnull=False), name="one_sandbox_decision_per_exception"),
+        ]
 
     def __str__(self):
         return f"{self.exception_key}: {self.action}"

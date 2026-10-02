@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import csv
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Optional
@@ -65,7 +65,8 @@ def seed_demo(missing_store: Optional[str] = None, output_dir: Optional[Path] = 
     output_dir = Path(output_dir or generator.DEFAULT_OUTPUT)
     manifest = generator.generate(output_dir, missing_store)
 
-    for model in (m.PayrollRun, m.ImportBatch, m.ScheduledShift, m.LeaveRecord, m.PayAddOn, m.LoanAdvance,
+    # Sandboxes hold runs and decisions computed from the old inputs: they would no longer match.
+    for model in (m.DemoSandbox, m.PayrollRun, m.ImportBatch, m.ScheduledShift, m.LeaveRecord, m.PayAddOn, m.LoanAdvance,
                   m.Employee, m.PayPeriod, m.Location):
         model.objects.all().delete()
 
@@ -177,9 +178,14 @@ def _json(value):
     return value
 
 
-def decisions_to_adjustments(period: m.PayPeriod) -> t.Adjustments:
+def decisions(period: m.PayPeriod, sandbox: Optional[m.DemoSandbox] = None):
+    """The review decisions of one sandbox (None = baseline) for the period."""
+    return period.decisions.filter(sandbox=sandbox)
+
+
+def decisions_to_adjustments(period: m.PayPeriod, sandbox: Optional[m.DemoSandbox] = None) -> t.Adjustments:
     adj = t.Adjustments()
-    for d in period.decisions.filter(action=m.ReviewDecision.APPROVE_WITH_VALUE):
+    for d in decisions(period, sandbox).filter(action=m.ReviewDecision.APPROVE_WITH_VALUE):
         code, emp, on, loc = t.parse_exception_key(d.exception_key)
         kind, value = DECISION_VALUES.get(code), d.value or {}
         if kind == "hours" and on and loc:
@@ -193,17 +199,25 @@ def decisions_to_adjustments(period: m.PayPeriod) -> t.Adjustments:
     return adj
 
 
+def runs(period: m.PayPeriod, sandbox: Optional[m.DemoSandbox] = None):
+    """The runs of one sandbox (None = baseline) for the period."""
+    return period.runs.filter(sandbox=sandbox)
+
+
 @transaction.atomic
-def run_payroll(period: m.PayPeriod, rules_path: Optional[Path] = None) -> m.PayrollRun:
-    """Run the engine for ``period`` with the period's review decisions applied, and store the result as a
-    draft run (replacing any earlier draft). Exceptions with a decision are marked approved."""
-    if period.runs.filter(status=m.PayrollRun.FINALIZED).exists():
+def run_payroll(period: m.PayPeriod, rules_path: Optional[Path] = None,
+                sandbox: Optional[m.DemoSandbox] = None) -> m.PayrollRun:
+    """Run the engine for ``period`` with this sandbox's review decisions applied (None = baseline), and store
+    the result as that sandbox's draft run, replacing its earlier draft. Exceptions with a decision are marked
+    approved. Other sandboxes and the baseline are never touched."""
+    if runs(period, sandbox).filter(status=m.PayrollRun.FINALIZED).exists():
         raise PayrollError(f"Payroll for {period} is finalized; reopen it before re-running")
     rules = load_rules(rules_path or DEFAULT_RULES_PATH)
-    result = run_engine(build_inputs(period, rules), rules, decisions_to_adjustments(period))
+    result = run_engine(build_inputs(period, rules), rules, decisions_to_adjustments(period, sandbox))
 
-    period.runs.filter(status=m.PayrollRun.DRAFT).delete()
-    run = m.PayrollRun.objects.create(period=period, rules_snapshot=rules.raw, totals=_json(result.totals))
+    runs(period, sandbox).filter(status=m.PayrollRun.DRAFT).delete()
+    run = m.PayrollRun.objects.create(period=period, sandbox=sandbox, rules_snapshot=rules.raw,
+                                      totals=_json(result.totals))
     employees = {e.employee_id: e for e in m.Employee.objects.all()}
     locations = {x.code: x for x in m.Location.objects.all()}
     m.PayrollLineRecord.objects.bulk_create(
@@ -225,20 +239,42 @@ def run_payroll(period: m.PayPeriod, rules_path: Optional[Path] = None) -> m.Pay
             exception_key=x.key, adjusted=x.adjusted, rows=[list(r) for r in x.rows], context=x.context,
         )
         for x in result.exceptions)
-    for d in period.decisions.all():
+    for d in decisions(period, sandbox):
         run.exceptions.filter(exception_key=d.exception_key).exclude(severity=BLOCKING).update(
             status=m.PayrollExceptionRecord.APPROVED, review_note=d.note, reviewed_at=d.decided_at)
     return run
 
 
-# ---------------------------------------------------------------- review gate
+# ---------------------------------------------------------------- sandboxes and current run
 
-def current_run(period: m.PayPeriod) -> Optional[m.PayrollRun]:
-    return period.runs.order_by("-created_at").first()
+def current_run(period: m.PayPeriod, sandbox: Optional[m.DemoSandbox] = None) -> Optional[m.PayrollRun]:
+    return runs(period, sandbox).order_by("-created_at").first()
 
 
-def latest_run() -> Optional[m.PayrollRun]:
-    return m.PayrollRun.objects.select_related("period").order_by("-created_at").first()
+def demo_period() -> Optional[m.PayPeriod]:
+    """The period the demo shows: the one with the latest baseline run."""
+    run = m.PayrollRun.objects.filter(sandbox=None).select_related("period").order_by("-created_at").first()
+    return run.period if run else None
+
+
+@transaction.atomic
+def create_sandbox(period: m.PayPeriod) -> m.DemoSandbox:
+    """A new private copy. Its run is computed by the engine with no decisions, so it equals the baseline."""
+    sandbox = m.DemoSandbox.objects.create()
+    run_payroll(period, sandbox=sandbox)
+    return sandbox
+
+
+def ensure_sandbox_run(period: m.PayPeriod, sandbox: m.DemoSandbox) -> m.PayrollRun:
+    return current_run(period, sandbox) or run_payroll(period, sandbox=sandbox)
+
+
+def cleanup_sandboxes(older_than: timedelta) -> int:
+    """Delete sandboxes not seen for ``older_than``; their runs and decisions go with them. Returns the count."""
+    old = m.DemoSandbox.objects.filter(last_seen_at__lt=timezone.now() - older_than)
+    count = old.count()
+    old.delete()
+    return count
 
 
 def _clean_value(record: m.PayrollExceptionRecord, kind: str, value: dict) -> dict:
@@ -275,9 +311,9 @@ def _clean_value(record: m.PayrollExceptionRecord, kind: str, value: dict) -> di
 
 @transaction.atomic
 def decide(period: m.PayPeriod, exception_key: str, action: str, value: Optional[dict] = None,
-           note: str = "") -> m.PayrollRun:
-    """Record (or replace) a reviewer decision for one exception, then re-run payroll for the period."""
-    run = current_run(period)
+           note: str = "", sandbox: Optional[m.DemoSandbox] = None) -> m.PayrollRun:
+    """Record (or replace) a reviewer decision in one sandbox (None = baseline), then re-run its payroll."""
+    run = current_run(period, sandbox)
     if run is None or run.status == m.PayrollRun.FINALIZED:
         raise DecisionError("Payroll for this period is finalized; reopen it to change decisions")
     record = run.exceptions.filter(exception_key=exception_key).select_related("employee").first()
@@ -297,27 +333,27 @@ def decide(period: m.PayPeriod, exception_key: str, action: str, value: Optional
     else:
         raise DecisionError(f"Unknown action {action!r}")
     m.ReviewDecision.objects.update_or_create(
-        period=period, exception_key=exception_key,
+        period=period, sandbox=sandbox, exception_key=exception_key,
         defaults={"action": action, "value": value, "note": note.strip()})
-    return run_payroll(period)
+    return run_payroll(period, sandbox=sandbox)
 
 
 @transaction.atomic
-def undo_decision(period: m.PayPeriod, exception_key: str) -> m.PayrollRun:
-    _require_draft(period)
-    period.decisions.filter(exception_key=exception_key).delete()
-    return run_payroll(period)
+def undo_decision(period: m.PayPeriod, exception_key: str, sandbox: Optional[m.DemoSandbox] = None) -> m.PayrollRun:
+    _require_draft(period, sandbox)
+    decisions(period, sandbox).filter(exception_key=exception_key).delete()
+    return run_payroll(period, sandbox=sandbox)
 
 
 @transaction.atomic
-def clear_decisions(period: m.PayPeriod) -> m.PayrollRun:
-    _require_draft(period)
-    period.decisions.all().delete()
-    return run_payroll(period)
+def clear_decisions(period: m.PayPeriod, sandbox: Optional[m.DemoSandbox] = None) -> m.PayrollRun:
+    _require_draft(period, sandbox)
+    decisions(period, sandbox).delete()
+    return run_payroll(period, sandbox=sandbox)
 
 
-def _require_draft(period: m.PayPeriod) -> None:
-    run = current_run(period)
+def _require_draft(period: m.PayPeriod, sandbox: Optional[m.DemoSandbox]) -> None:
+    run = current_run(period, sandbox)
     if run is not None and run.status == m.PayrollRun.FINALIZED:
         raise DecisionError("Payroll for this period is finalized; reopen it to change decisions")
 
@@ -345,15 +381,28 @@ def _post_loans(run: m.PayrollRun, sign: int) -> None:
                 loan.save(update_fields=["paid_to_date"])
 
 
+def _current_run_locked(period: m.PayPeriod, sandbox: Optional[m.DemoSandbox]) -> m.PayrollRun:
+    run = current_run(period, sandbox)
+    if run is None:
+        raise PayrollError("There is no payroll run to act on")
+    return m.PayrollRun.objects.select_for_update().get(pk=run.pk)
+
+
 @transaction.atomic
-def finalize(run: m.PayrollRun) -> m.PayrollRun:
-    run = m.PayrollRun.objects.select_for_update().get(pk=run.pk)
+def finalize(period: m.PayPeriod, sandbox: Optional[m.DemoSandbox] = None) -> m.PayrollRun:
+    """Finalize the current run of one sandbox (None = baseline).
+
+    Only the baseline posts loan deductions to the loan balances. Loan balances are shared inputs, so a
+    visitor's sandbox must never change them.
+    """
+    run = _current_run_locked(period, sandbox)
     if run.status == m.PayrollRun.FINALIZED:
         raise PayrollError("Run is already finalized")
     reasons = finalize_blockers(run)
     if reasons:
         raise FinalizeRefused(reasons)
-    _post_loans(run, +1)
+    if sandbox is None:
+        _post_loans(run, +1)
     run.status = m.PayrollRun.FINALIZED
     run.finalized_at = timezone.now()
     run.save(update_fields=["status", "finalized_at"])
@@ -361,12 +410,13 @@ def finalize(run: m.PayrollRun) -> m.PayrollRun:
 
 
 @transaction.atomic
-def reopen(run: m.PayrollRun) -> m.PayrollRun:
-    """Demo convenience: put a finalized run back to draft (and take back its loan postings)."""
-    run = m.PayrollRun.objects.select_for_update().get(pk=run.pk)
+def reopen(period: m.PayPeriod, sandbox: Optional[m.DemoSandbox] = None) -> m.PayrollRun:
+    """Demo convenience: put a finalized run back to draft (the baseline also takes back its loan postings)."""
+    run = _current_run_locked(period, sandbox)
     if run.status != m.PayrollRun.FINALIZED:
         raise PayrollError("Run is not finalized")
-    _post_loans(run, -1)
+    if sandbox is None:
+        _post_loans(run, -1)
     run.status = m.PayrollRun.DRAFT
     run.finalized_at = None
     run.save(update_fields=["status", "finalized_at"])

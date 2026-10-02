@@ -356,10 +356,10 @@ def test_17_review_gate(tmp_path):
     period = services.seed_demo(output_dir=tmp_path)
     run = services.run_payroll(period)
     with pytest.raises(services.FinalizeRefused):
-        services.finalize(run)
+        services.finalize(period)
     for key in list(run.exceptions.filter(severity="needs_review").values_list("exception_key", flat=True)):
         run = services.decide(period, key, "approve", note="checked")
-    assert services.finalize(run).status == "finalized"
+    assert services.finalize(period).status == "finalized"
     assert not PayrollExceptionRecord.objects.filter(run=run, severity="needs_review", status="open").exists()
 
 

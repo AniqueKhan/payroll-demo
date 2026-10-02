@@ -12,7 +12,7 @@
 <body>
   <header class="site-header">
     <div class="wrap header-inner">
-      <a class="brand" href="{% url 'core:home' %}">Multi-store payroll <span class="muted">demo</span></a>
+      <a class="brand" href="{% url 'core:overview' %}">Multi-store payroll <span class="muted">demo</span></a>
       {% if run %}
       <div class="run-meta">
         <span class="period">{{ period.start_date|date:"M j" }} to {{ period.end_date|date:"M j, Y" }}</span>
@@ -21,18 +21,19 @@
         {% else %}
           <span class="status status-draft">Draft</span>
         {% endif %}
+        {% if in_sandbox %}<span class="status status-copy">Your copy</span>{% else %}<span class="status status-clean">Clean demo</span>{% endif %}
       </div>
       {% endif %}
     </div>
     {% if run %}
     <nav class="wrap nav" aria-label="Main">
-      <a href="{% url 'core:overview' run.pk %}" {% if active == 'overview' %}aria-current="page"{% endif %}>Overview</a>
-      <a href="{% url 'core:inputs' run.pk %}" {% if active == 'inputs' %}aria-current="page"{% endif %}>Inputs</a>
-      <a href="{% url 'core:exceptions' run.pk %}" {% if active == 'exceptions' %}aria-current="page"{% endif %}>
+      <a href="{% url 'core:overview' %}" {% if active == 'overview' %}aria-current="page"{% endif %}>Overview</a>
+      <a href="{% url 'core:inputs' %}" {% if active == 'inputs' %}aria-current="page"{% endif %}>Inputs</a>
+      <a href="{% url 'core:exceptions' %}" {% if active == 'exceptions' %}aria-current="page"{% endif %}>
         Exceptions
         {% if open_count or blocking_count %}<span class="badge badge-amber" title="Open items">{{ open_count|add:blocking_count }}<span class="sr-only"> open</span></span>{% endif %}
       </a>
-      <a href="{% url 'core:payroll' run.pk %}" {% if active == 'payroll' %}aria-current="page"{% endif %}>Payroll</a>
+      <a href="{% url 'core:payroll' %}" {% if active == 'payroll' %}aria-current="page"{% endif %}>Payroll</a>
     </nav>
     {% endif %}
   </header>

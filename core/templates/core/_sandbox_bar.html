@@ -1,0 +1,11 @@
+<div class="sandbox-bar {% if in_sandbox %}sandbox-on{% endif %}">
+  {% if in_sandbox %}
+    <p><strong>Your private copy.</strong> Your decisions only change what you see; other visitors start from the clean demo.</p>
+    <form method="post" action="{% url 'core:start_over' %}">
+      {% csrf_token %}
+      <button class="btn btn-secondary" type="submit">Start over</button>
+    </form>
+  {% else %}
+    <p><strong>Clean demo.</strong> Try the review queue: your first decision creates a private copy that only you can see.</p>
+  {% endif %}
+</div>

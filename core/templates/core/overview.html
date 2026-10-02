@@ -6,16 +6,17 @@
   <h1>Payroll overview</h1>
   <p class="lead">3 stores' time clock exports in, every problem flagged, payroll finalized only after review.</p>
 </section>
+{% include "core/_sandbox_bar.html" %}
 
 {% if not is_final %}
   {% if blocking_count %}
-  <a class="cta cta-red" href="{% url 'core:exceptions' run.pk %}#blocking">
+  <a class="cta cta-red" href="{% url 'core:exceptions' %}#blocking">
     <strong>{{ blocking_count }} blocking problem{{ blocking_count|pluralize }}</strong>
     <span>must be fixed at the input before payroll can be finalized</span>
   </a>
   {% endif %}
   {% if open_count %}
-  <a class="cta" href="{% url 'core:exceptions' run.pk %}#needs_review">
+  <a class="cta" href="{% url 'core:exceptions' %}#needs_review">
     <strong>{{ open_count }} item{{ open_count|pluralize }} need{{ open_count|pluralize:"s," }} your review</strong>
     <span>Open the review queue →</span>
   </a>
@@ -60,21 +61,21 @@
         </li>
       {% endfor %}
     </ul>
-    <p><a href="{% url 'core:exceptions' run.pk %}">Open the review queue →</a></p>
+    <p><a href="{% url 'core:exceptions' %}">Open the review queue →</a></p>
   </section>
 </div>
 
 <section class="card">
   <h2>Finalize</h2>
   {% if is_final %}
-    <p>Finalized {{ run.finalized_at|date:"M j, Y H:i" }}. Loan and advance deductions have been posted.</p>
-    <form method="post" action="{% url 'core:reopen' run.pk %}">
+    <p>Finalized {{ run.finalized_at|date:"M j, Y H:i" }}.{% if in_sandbox %} In this demo copy, loan balances are shared inputs, so they are left unchanged.{% else %} Loan and advance deductions have been posted.{% endif %}</p>
+    <form method="post" action="{% url 'core:reopen' %}">
       {% csrf_token %}
       <button class="btn btn-secondary" type="submit">Reopen as draft</button>
-      <span class="muted small">Demo only: takes back the loan postings so you can walk through again.</span>
+      <span class="muted small">Demo only: puts the run back to draft so you can walk through again.</span>
     </form>
   {% else %}
-    <form method="post" action="{% url 'core:finalize' run.pk %}">
+    <form method="post" action="{% url 'core:finalize' %}">
       {% csrf_token %}
       <button class="btn" type="submit" {% if blockers %}disabled aria-describedby="finalize-why"{% endif %}>Finalize payroll</button>
     </form>
