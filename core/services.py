@@ -61,16 +61,17 @@ def value_kind(record: "m.PayrollExceptionRecord") -> Optional[str]:
 
 @transaction.atomic
 def seed_demo(missing_store: Optional[str] = None, output_dir: Optional[Path] = None,
-              period_start: Optional[date] = None) -> m.PayPeriod:
+              period_start: Optional[date] = None, extra_employees: int = 0, stores: int = 3) -> m.PayPeriod:
     """Generate the demo files for the period starting ``period_start`` (default: the demo's Sep 7, 2026) and
     load master data, schedules and inputs into the DB, replacing old data.
 
-    Raises ``generator.PeriodStartError`` before touching anything if the start is not on the rules'
-    week start day.
+    ``extra_employees`` adds clean filler staff and ``stores`` adds stores D, E, ... on top of the core demo.
+    Raises ``generator.PeriodStartError`` or ``generator.DemoOptionError`` before touching anything when an
+    option is invalid.
     """
     output_dir = Path(output_dir or generator.DEFAULT_OUTPUT)
     manifest = generator.generate(output_dir, missing_store, period_start or generator.DEFAULT_PERIOD_START,
-                                  load_rules(DEFAULT_RULES_PATH))
+                                  load_rules(DEFAULT_RULES_PATH), extra_employees=extra_employees, stores=stores)
 
     # Sandboxes hold runs and decisions computed from the old inputs: they would no longer match.
     for model in (m.DemoSandbox, m.PayrollRun, m.ImportBatch, m.ScheduledShift, m.LeaveRecord, m.PayAddOn, m.LoanAdvance,
@@ -161,7 +162,8 @@ def mark_rows_in_period(period: m.PayPeriod, rules: Rules) -> None:
                 belongs = on is None or period.start_date <= on <= period.end_date
             if not belongs:
                 outside.append(row.pk)
-    m.RawImportRow.objects.filter(pk__in=outside).update(in_period=False)
+    for i in range(0, len(outside), 500):  # chunks stay under SQLite's variable limit
+        m.RawImportRow.objects.filter(pk__in=outside[i:i + 500]).update(in_period=False)
 
 
 # ---------------------------------------------------------------- ORM -> engine

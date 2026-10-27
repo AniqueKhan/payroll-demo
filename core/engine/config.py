@@ -32,10 +32,6 @@ class Rules:
         return WEEKDAYS.index(self.raw["period"]["week_start"][:3].lower())
 
     @property
-    def expected_locations(self) -> list[str]:
-        return list(self.raw.get("expected_locations", []))
-
-    @property
     def ot_threshold(self) -> Decimal:
         return to_decimal(self.raw["overtime"]["weekly_threshold_hours"])
 

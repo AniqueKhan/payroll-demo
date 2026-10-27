@@ -9,6 +9,7 @@ from decimal import Decimal
 from functools import wraps
 
 from django.contrib import messages
+from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -58,8 +59,15 @@ def period_label(period: m.PayPeriod) -> str:
     return labels.period_label(period.start_date, period.end_date)
 
 
-def raw_row_index(period: m.PayPeriod) -> dict[tuple[str, int], m.RawImportRow]:
-    rows = m.RawImportRow.objects.filter(batch__period=period).select_related("batch__location")
+def raw_row_index(period: m.PayPeriod, wanted: set[tuple[str, int]]) -> dict[tuple[str, int], m.RawImportRow]:
+    """The raw rows referenced by exceptions, keyed by (store, row number). Loads only those rows."""
+    by_store: dict[str, set[int]] = defaultdict(set)
+    for loc, number in wanted:
+        by_store[loc].add(number)
+    query = Q(pk__in=[])
+    for loc, numbers in by_store.items():
+        query |= Q(batch__location__code=loc, row_number__in=sorted(numbers))
+    rows = m.RawImportRow.objects.filter(query, batch__period=period).select_related("batch__location")
     return {(r.batch.location.code, r.row_number): r for r in rows}
 
 
@@ -162,9 +170,9 @@ def present_exception(x: m.PayrollExceptionRecord, decisions: dict, raw_rows: di
 def exceptions(request, run):
     ctx = base_context(run, "exceptions")
     decisions = {d.exception_key: d for d in services.decisions(run.period, run.sandbox)}
-    raw_rows = raw_row_index(run.period)
+    records = list(run.exceptions.select_related("employee", "location").order_by("id"))
+    raw_rows = raw_row_index(run.period, {(loc, n) for x in records for loc, n in x.rows})
     leave_types = list(load_rules(DEFAULT_RULES_PATH).leave_types)
-    records = run.exceptions.select_related("employee", "location").order_by("id")
     items = [present_exception(x, decisions, raw_rows, leave_types) for x in records]
     ctx.update({
         "sections": [
@@ -200,14 +208,25 @@ def employee_markers(run: m.PayrollRun) -> dict[str, dict]:
 @with_run
 def payroll(request, run):
     ctx = base_context(run, "payroll")
-    lines = list(run.lines.select_related("employee__home_location"))
+    q = request.GET.get("q", "").strip()
+    store = request.GET.get("store", "").strip().upper()
+    all_lines = run.lines.select_related("employee__home_location")
+    lines = all_lines
+    if q:
+        lines = lines.filter(Q(employee__name__icontains=q) | Q(employee__employee_id__iexact=q)
+                             | Q(employee__employee_id__icontains=q))
+    if store:
+        lines = lines.filter(employee__home_location__code=store)
+    lines = list(lines)
     if request.GET.get("sort") == "gross":
         lines.sort(key=lambda line: line.gross, reverse=True)
     fields = ["regular_hours", "overtime_hours", "regular_pay", "overtime_pay", "addons", "deductions", "gross",
               "net"]
     totals = {f: sum((getattr(line, f) for line in lines), Decimal(0)) for f in fields}
     ctx.update({"lines": lines, "totals": totals, "markers": employee_markers(run),
-                "sort": request.GET.get("sort", "")})
+                "sort": request.GET.get("sort", ""), "q": q, "store": store,
+                "stores": m.Location.objects.all(), "total_count": all_lines.count(),
+                "filtered": bool(q or store)})
     return render(request, "core/payroll.html", ctx)
 
 

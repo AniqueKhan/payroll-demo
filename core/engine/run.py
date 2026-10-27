@@ -46,7 +46,7 @@ def import_time_files(inputs: PayrollInputs, rules: Rules) -> tuple[list[Punch],
     punches: list[Punch] = []
     found: list[PayrollException] = []
     missing: set[str] = set()
-    expected = set(rules.expected_locations) or {loc.code for loc in inputs.locations}
+    expected = {loc.code for loc in inputs.locations}  # every store must deliver an export
     for loc in inputs.locations:
         source = inputs.time_files.get(loc.code)
         if source is None:

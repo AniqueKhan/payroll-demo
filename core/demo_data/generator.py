@@ -26,16 +26,59 @@ SEED = 20260907
 DEFAULT_PERIOD_START = date(2026, 9, 7)  # Monday
 DEFAULT_OUTPUT = Path(__file__).resolve().parent / "output"
 
-LOCATIONS = [
+# The three core stores. Each uses a different export format on purpose and always exists.
+CORE_LOCATIONS = [
     {"code": "A", "name": "Northgate Market", "timezone": "America/Chicago", "export_format": "store_a"},
     {"code": "B", "name": "Riverside Plaza", "timezone": "America/Chicago", "export_format": "store_b"},
     {"code": "C", "name": "Lakeview Commons", "timezone": "America/Chicago", "export_format": "store_c"},
 ]
-TIME_FILES = {"A": "store_a_timeclock.csv", "B": "store_b_timeclock.csv", "C": "store_c_timeclock.csv"}
+FORMATS = ["store_a", "store_b", "store_c"]
+MIN_STORES, MAX_STORES = 3, 26  # stores are lettered A to Z
+MAX_EXTRA_EMPLOYEES = 500
+# Made-up names for the extra stores D, E, F, ...
+EXTRA_STORE_NAMES = [
+    "Harborview Square", "Maple Grove", "Cedar Point", "Westfield Crossing", "Pinecrest Mall", "Sunset Plaza",
+    "Brookside Center", "Oak Hollow", "Granite Ridge", "Willow Creek", "Elm Street Market", "Bayside Commons",
+    "Hillcrest Village", "Fox Run", "Stonebridge", "Meadowlands", "Silver Lake", "Juniper Court",
+    "Redwood Station", "Aspen Park", "Lighthouse Point", "Copper Canyon", "Northfield",
+]
+# Made-up names for filler staff, combined first x last and shuffled with a fixed seed.
+FILLER_FIRST = [
+    "Alex", "Bailey", "Cameron", "Dakota", "Eden", "Frankie", "Gray", "Hayden", "Indy", "Jesse", "Kendall",
+    "Lane", "Marley", "Noel", "Oakley", "Peyton", "Reese", "Sawyer", "Tatum", "Uma", "Val", "Wren", "Yael",
+    "Zion", "Arden", "Blair", "Corey", "Drew", "Ellis", "Finn",
+]
+FILLER_LAST = [
+    "Abbott", "Barlow", "Carver", "Dalton", "Easton", "Fairley", "Garland", "Hollis", "Irving", "Jarrett",
+    "Keller", "Lowell", "Mercer", "Norwood", "Oakes", "Prescott", "Quill", "Radley", "Sutton", "Thorne",
+    "Underhill", "Vance", "Whitlock", "Yardley", "Zeller", "Ashby", "Brennan", "Calloway", "Dunmore", "Ellery",
+]
 
 
 class PeriodStartError(ValueError):
     """The requested period start is not on the rules' week start day."""
+
+
+class DemoOptionError(ValueError):
+    """An invalid --stores or --extra-employees value."""
+
+
+def time_file(code: str) -> str:
+    return f"store_{code.lower()}_timeclock.csv"
+
+
+def build_locations(stores: int) -> list[dict]:
+    """The core stores A, B and C, then D, E, F, ... cycling through the three export formats."""
+    if not MIN_STORES <= stores <= MAX_STORES:
+        raise DemoOptionError(
+            f"The demo needs between {MIN_STORES} and {MAX_STORES} stores, not {stores}. Stores A, B and C are "
+            f"always included because each uses a different export format and the planted scenarios live there.")
+    locations = [dict(loc) for loc in CORE_LOCATIONS]
+    for i in range(stores - len(CORE_LOCATIONS)):
+        code = chr(ord("D") + i)
+        locations.append({"code": code, "name": EXTRA_STORE_NAMES[i], "timezone": "America/Chicago",
+                          "export_format": FORMATS[i % len(FORMATS)]})
+    return locations
 
 
 def _emp(id, name, home, rates=None, salary=None, ext=None, hired=-966, exits=None):
@@ -315,6 +358,51 @@ def edge_shifts(plan: Plan, employees: list[dict]) -> list[dict]:
     return shifts
 
 
+def filler_employees(plan: Plan, count: int, locations: list[dict]) -> list[dict]:
+    """Clean extra staff E19, E20, ...: hourly, one store each (round-robin), no scenario planted on them."""
+    if not 0 <= count <= MAX_EXTRA_EMPLOYEES:
+        raise DemoOptionError(f"--extra-employees must be between 0 and {MAX_EXTRA_EMPLOYEES}, not {count}.")
+    rng = random.Random(SEED + 1)  # separate from the core seed: core punches never change
+    core_names = {e["name"] for e in CORE_EMPLOYEES}
+    names = [f"{first} {last}" for first in FILLER_FIRST for last in FILLER_LAST]
+    rng.shuffle(names)
+    names = [n for n in names if n not in core_names]
+    rates = [f"{15 + q * 0.25:.2f}" for q in range(13)]  # $15.00 to $18.00
+    staff = []
+    for i in range(count):
+        number = len(CORE_EMPLOYEES) + 1 + i
+        loc = locations[i % len(locations)]
+        code, fmt = loc["code"], loc["export_format"]
+        external = {"store_a": str(2000 + number), "store_b": f"RV-{number:04d}", "store_c": names[i]}[fmt]
+        staff.append({
+            "id": f"E{number:02d}", "name": names[i], "home_location": code, "pay_type": "hourly",
+            "rates": {code: rng.choice(rates)}, "salary_per_period": None,
+            "hire_date": plan.day(-400 - i).isoformat(), "exit_date": None, "external_ids": {code: external},
+        })
+    return staff
+
+
+def filler_schedules_and_shifts(plan: Plan, staff: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Monday to Friday 09:00 to 17:00. Clock-in up to 5 minutes late (inside the grace period) and
+    clock-out up to 5 minutes early, so filler staff never raise an exception or reach overtime."""
+    rng = random.Random(SEED + 2)
+    schedules, shifts = [], []
+    for e in staff:
+        code = e["home_location"]
+        for n in range(plan.length_days + 1):  # one extra day: the Monday after spills into the export
+            day = plan.day(n)
+            if day.weekday() >= 5:
+                continue
+            start = plan.at(n, "09:00") + timedelta(minutes=rng.randint(0, 5))
+            end = plan.at(n, "17:00") - timedelta(minutes=rng.randint(0, 5))
+            shifts.append({"employee_id": e["id"], "location": code, "date": day, "in": start, "out": end,
+                           "edge": n >= plan.length_days})
+            if n < plan.length_days:
+                schedules.append({"employee_id": e["id"], "location_code": code, "date": day,
+                                  "start": "09:00", "end": "17:00"})
+    return schedules, shifts
+
+
 def _write_csv(path: Path, header: list[str], rows: list[list]) -> None:
     with open(path, "w", encoding="utf-8", newline="") as fh:
         writer = csv.writer(fh)
@@ -322,70 +410,78 @@ def _write_csv(path: Path, header: list[str], rows: list[list]) -> None:
         writer.writerows(rows)
 
 
-def _ext(emp_id: str, loc: str) -> str:
-    return next(e for e in CORE_EMPLOYEES if e["id"] == emp_id)["external_ids"][loc]
-
-
-def write_store_a(path: Path, shifts: list[dict], plan: Plan) -> None:
-    rows = []
-    for s in shifts:
-        if s["location"] != "A":
-            continue
-        emp = _ext(s["employee_id"], "A")
-        rows.append([emp, s["in"].date().isoformat(), s["in"].strftime("%H:%M"), "IN"])
-        if s.get("duplicate_in"):
-            rows.append([emp, s["in"].date().isoformat(), (s["in"] + timedelta(minutes=1)).strftime("%H:%M"), "IN"])
-        if s["out"]:
-            rows.append([emp, s["out"].date().isoformat(), s["out"].strftime("%H:%M"), "OUT"])
-    rows.append([_ext("E02", "A"), plan.day(2).isoformat(), "9:6O", "IN"])  # scenario 1: malformed, affects pay
-    rows.sort(key=lambda r: (r[1], r[0], r[2]))
-    _write_csv(path, ["EmpID", "Date", "Time", "Type"], rows)
-
-
-def write_store_b(path: Path, shifts: list[dict], plan: Plan) -> None:
-    rows = []
-    for s in shifts:
-        if s["location"] != "B":
-            continue
-        times = s.get("extra_punches") or [x for x in (s["in"], s["out"]) if x]
-        rows.extend([_ext(s["employee_id"], "B"), x] for x in times)
-    rows.sort(key=lambda r: (r[1], r[0]))
-    _write_csv(path, ["employee_code", "punch_datetime"], [[c, x.strftime("%m/%d/%Y %I:%M %p")] for c, x in rows])
-
-
-def write_store_c(path: Path, shifts: list[dict], plan: Plan) -> None:
-    rows = []
-    for s in shifts:
-        if s["location"] != "C":
-            continue
-        out = s["out"].strftime("%H:%M") if s["out"] else ""
-        rows.append([_ext(s["employee_id"], "C"), s["date"].isoformat(), s["in"].strftime("%H:%M"), out, "Floor"])
-    rows.sort(key=lambda r: (r[1], r[0]))
-    _write_csv(path, ["Name", "Date", "In", "Out", "Dept"], rows)  # 'Dept' is scenario 1's unknown column
+def write_export(path: Path, location: dict, shifts: list[dict], ext: dict, plan: Plan) -> None:
+    """Write one store's time clock export in that store's format. ``ext`` maps (employee, store) to the
+    store's own identifier. Scenario rows (the malformed row, the extra column) live in the core stores only."""
+    code, fmt = location["code"], location["export_format"]
+    mine = [s for s in shifts if s["location"] == code]
+    if fmt == "store_a":
+        rows = []
+        for s in mine:
+            emp = ext[(s["employee_id"], code)]
+            rows.append([emp, s["in"].date().isoformat(), s["in"].strftime("%H:%M"), "IN"])
+            if s.get("duplicate_in"):
+                rows.append([emp, s["in"].date().isoformat(), (s["in"] + timedelta(minutes=1)).strftime("%H:%M"),
+                             "IN"])
+            if s["out"]:
+                rows.append([emp, s["out"].date().isoformat(), s["out"].strftime("%H:%M"), "OUT"])
+        if code == "A":
+            rows.append([ext[("E02", "A")], plan.day(2).isoformat(), "9:6O", "IN"])  # scenario 1: malformed row
+        rows.sort(key=lambda r: (r[1], r[0], r[2]))
+        _write_csv(path, ["EmpID", "Date", "Time", "Type"], rows)
+    elif fmt == "store_b":
+        rows = []
+        for s in mine:
+            times = s.get("extra_punches") or [x for x in (s["in"], s["out"]) if x]
+            rows.extend([ext[(s["employee_id"], code)], x] for x in times)
+        rows.sort(key=lambda r: (r[1], r[0]))
+        _write_csv(path, ["employee_code", "punch_datetime"],
+                   [[c, x.strftime("%m/%d/%Y %I:%M %p")] for c, x in rows])
+    else:
+        rows = []
+        planted = code == "C"  # scenario 1: Store C's export carries an extra 'Dept' column
+        for s in mine:
+            out = s["out"].strftime("%H:%M") if s["out"] else ""
+            row = [ext[(s["employee_id"], code)], s["date"].isoformat(), s["in"].strftime("%H:%M"), out]
+            rows.append(row + ["Floor"] if planted else row)
+        rows.sort(key=lambda r: (r[1], r[0]))
+        _write_csv(path, ["Name", "Date", "In", "Out"] + (["Dept"] if planted else []), rows)
 
 
 def generate(output_dir: Path | str = DEFAULT_OUTPUT, missing_store: Optional[str] = None,
-             period_start: date = DEFAULT_PERIOD_START, rules: Optional[Rules] = None) -> dict:
-    """Write the demo inputs for the period starting ``period_start``. Raises ``PeriodStartError`` (and
-    writes nothing) when the start is not on the rules' week start day."""
+             period_start: date = DEFAULT_PERIOD_START, rules: Optional[Rules] = None,
+             extra_employees: int = 0, stores: int = 3) -> dict:
+    """Write the demo inputs for the period starting ``period_start``: the 18 core employees and stores
+    A, B and C with every planted scenario, plus ``extra_employees`` clean filler staff and ``stores - 3``
+    extra stores. Raises ``PeriodStartError`` or ``DemoOptionError`` (and writes nothing) on bad options."""
     rules = rules or load_rules(DEFAULT_RULES_PATH)
     check_period_start(period_start, rules)
     plan = Plan(period_start, rules.period_length_days)
+    locations = build_locations(stores)
+    codes = {loc["code"] for loc in locations}
+    if missing_store and missing_store.upper() not in codes:
+        raise DemoOptionError(f"--missing-store {missing_store} is not one of the stores ({', '.join(sorted(codes))}).")
+    filler = filler_employees(plan, extra_employees, locations)
 
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
-    for old in TIME_FILES.values():
-        (out / old).unlink(missing_ok=True)
+    for old in out.glob("store_*_timeclock.csv"):
+        old.unlink()
     rng = random.Random(SEED)
 
-    employees = plan.employees()
-    schedules = build_schedules(plan, employees)
+    core = plan.employees()
+    schedules = build_schedules(plan, core)
     shifts, scenarios = apply_scenarios(plan, build_shifts(schedules, rng))
-    shifts += edge_shifts(plan, employees)
-    writers = {"A": write_store_a, "B": write_store_b, "C": write_store_c}
-    for code, writer in writers.items():
-        if code != (missing_store or "").upper():
-            writer(out / TIME_FILES[code], shifts, plan)
+    shifts += edge_shifts(plan, core)
+    filler_schedules, filler_shifts = filler_schedules_and_shifts(plan, filler)
+    schedules = sorted(schedules + filler_schedules, key=lambda r: (r["date"], r["employee_id"]))
+    shifts += filler_shifts
+    employees = core + filler
+    ext = {(e["id"], loc): ident for e in employees for loc, ident in e["external_ids"].items()}
+    time_files = {loc["code"]: time_file(loc["code"]) for loc in locations}
+    for loc in locations:
+        if loc["code"] != (missing_store or "").upper():
+            write_export(out / time_files[loc["code"]], loc, shifts, ext, plan)
     if missing_store:
         scenarios["2"] = [{"employee": None, "date": None, "location": missing_store.upper(),
                            "code": "STORE_FILE_MISSING", "severity": "blocking"}]
@@ -394,7 +490,7 @@ def generate(output_dir: Path | str = DEFAULT_OUTPUT, missing_store: Optional[st
                            "note": "generate with --missing-store CODE to plant"}]
 
     leaves, addons, loans = plan.leaves(), plan.addons(), plan.loans()
-    (out / "locations.json").write_text(json.dumps(LOCATIONS, indent=2))
+    (out / "locations.json").write_text(json.dumps(locations, indent=2))
     (out / "employees.json").write_text(json.dumps(employees, indent=2))
     _write_csv(out / "schedules.csv", ["employee_id", "location_code", "date", "start", "end"],
                [[r["employee_id"], r["location_code"], r["date"].isoformat(), r["start"], r["end"]]
@@ -413,7 +509,9 @@ def generate(output_dir: Path | str = DEFAULT_OUTPUT, missing_store: Optional[st
         "period_start": period_start.isoformat(),
         "period_end": plan.end.isoformat(),
         "missing_store": missing_store.upper() if missing_store else None,
-        "time_files": TIME_FILES,
+        "stores": len(locations),
+        "extra_employees": extra_employees,
+        "time_files": time_files,
         "scenarios": dict(sorted(scenarios.items(), key=lambda kv: int(kv[0]))),
     }
     (out / "scenario_manifest.json").write_text(json.dumps(manifest, indent=2))
@@ -426,10 +524,13 @@ def main(argv=None) -> None:
     parser.add_argument("--period", type=date.fromisoformat, default=DEFAULT_PERIOD_START,
                         help="Period start date, YYYY-MM-DD (must be on the rules' week start day)")
     parser.add_argument("--missing-store", default=None, help="Leave this store's export out (scenario 2)")
+    parser.add_argument("--extra-employees", type=int, default=0, help="Clean filler staff to add (E19, ...)")
+    parser.add_argument("--stores", type=int, default=3, help="Number of stores, at least 3 (adds D, E, ...)")
     args = parser.parse_args(argv)
     try:
-        manifest = generate(args.out, args.missing_store, args.period)
-    except PeriodStartError as e:
+        manifest = generate(args.out, args.missing_store, args.period, extra_employees=args.extra_employees,
+                            stores=args.stores)
+    except (PeriodStartError, DemoOptionError) as e:
         parser.exit(2, f"{e}\n")
     print(f"Wrote demo inputs for {manifest['period_start']} to {args.out}")
 

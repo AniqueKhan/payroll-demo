@@ -15,6 +15,12 @@ pytest
 
 `seed_demo --period YYYY-MM-DD` generates the demo for any pay period. The date is the period start and must fall on the rules' `period.week_start` (Monday); a date on any other day is refused, with the nearest valid dates suggested. The period length comes from `period.length_days` in the rules. Every planted scenario is placed relative to the start date, so it lands on the same weekday in every period. The totals and exceptions are the same in every period; only the dates move. Without `--period`, the demo uses Sep 7 to 20, 2026.
 
+**Bigger demos.** The 18 core employees and stores A, B and C are always there, so every planted scenario always appears. You can add more on top:
+- `--extra-employees N` adds clean filler staff (E19, E20, ...). They are hourly at $15.00 to $18.00, spread across all stores in turn, and work Monday to Friday with punches inside the grace period, so they raise no exceptions and no overtime.
+- `--stores N` (at least 3, at most 26) adds stores D, E, F and so on. Each extra store reuses the store_a, store_b and store_c formats in turn and has its own export file.
+
+Every store must deliver an export, so `--missing-store` works for extra stores too. The options combine with `--period`, and the same options always produce identical output. `seed_demo --extra-employees 200 --stores 10` and `run_payroll` take a few seconds. The Payroll screen has a search box (name or ID) and a home store filter.
+
 ## Settings
 
 Secrets and per-environment values live in `payroll/environment.py`, next to `settings.py`. That file is gitignored and imported at the end of `settings.py`. `settings.py` itself ships with an empty `SECRET_KEY`. Everything reads its key from `environment.py`: the screens, sessions and messages, and the test suite. For local development:

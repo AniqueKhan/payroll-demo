@@ -8,9 +8,22 @@
 </section>
 
 <section class="card">
+  <form class="filters" method="get" action="{% url 'core:payroll' %}" role="search">
+    <label>Search <input type="search" name="q" value="{{ q }}" placeholder="Name or ID, e.g. E07"></label>
+    <label>Home store
+      <select name="store">
+        <option value="">All stores</option>
+        {% for loc in stores %}<option value="{{ loc.code }}" {% if loc.code == store %}selected{% endif %}>Store {{ loc.code }} · {{ loc.name }}</option>{% endfor %}
+      </select>
+    </label>
+    {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+    <button class="btn btn-secondary" type="submit">Filter</button>
+    {% if filtered %}<a href="{% url 'core:payroll' %}{% if sort %}?sort={{ sort }}{% endif %}">Clear</a>{% endif %}
+  </form>
   <p class="small muted">
+    {% if filtered %}Showing {{ lines|length }} of {{ total_count }} employees. {% endif %}
     Deductions = penalties + loans and advances + custom deductions. Absence deductions are already taken out of gross.
-    {% if sort == "gross" %}<a href="{% url 'core:payroll' %}">Sort by employee</a>{% else %}<a href="?sort=gross">Sort by gross</a>{% endif %}
+    {% if sort == "gross" %}<a href="?{% if q %}q={{ q|urlencode }}&amp;{% endif %}{% if store %}store={{ store }}{% endif %}">Sort by employee</a>{% else %}<a href="?sort=gross{% if q %}&amp;q={{ q|urlencode }}{% endif %}{% if store %}&amp;store={{ store }}{% endif %}">Sort by gross</a>{% endif %}
   </p>
   <div class="table-wrap">
     <table class="payroll">
@@ -40,11 +53,13 @@
           <td>{% if marker %}<span class="pill pill-{{ marker.state }}">{{ marker.label }}</span> <span class="muted small">{{ marker.count }}</span>{% endif %}</td>
         </tr>
         {% endwith %}
+      {% empty %}
+        <tr><td colspan="12" class="muted">No employees match{% if q %} "{{ q }}"{% endif %}{% if store %} at Store {{ store }}{% endif %}.</td></tr>
       {% endfor %}
       </tbody>
       <tfoot>
         <tr>
-          <th colspan="3">Total ({{ lines|length }} employees)</th>
+          <th colspan="3">Total ({{ lines|length }} employee{{ lines|length|pluralize }}{% if filtered %} shown{% endif %})</th>
           <td class="num">{{ totals.regular_hours|hours }}</td>
           <td class="num">{{ totals.overtime_hours|hours }}</td>
           <td class="num">{{ totals.regular_pay|money }}</td>
