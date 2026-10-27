@@ -78,6 +78,8 @@ main { padding-bottom: 40px; }
 .cta-green span { color: var(--green); }
 .callout { border-radius: 8px; padding: 10px 14px; margin: 10px 0; }
 .callout-red { background: var(--red-soft); color: var(--red); }
+.callout-note { background: var(--grey-soft); border: 1px solid var(--line); color: var(--ink); }
+.tag-grey { background: #fff; color: var(--grey); border: 1px solid var(--line); }
 .callout-adjust { background: var(--accent-soft); border: 1px solid #b8dcea; color: var(--accent-dark); }
 .why { margin: 10px 0 0; padding-left: 18px; color: var(--amber); }
 .messages { margin-bottom: 18px; }

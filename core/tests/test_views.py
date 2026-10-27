@@ -58,6 +58,22 @@ def test_inputs_mark_flagged_rows_unknown_columns_and_link_to_exceptions(client,
     assert "#exc-MISSED_CLOCK_OUT-E03-2026-09-10-A" in html
 
 
+def test_unknown_column_is_a_note_on_the_store_tab_not_an_exception(client, period):
+    note = ("Store C&#x27;s file has an extra column, &quot;Dept&quot;, that we don&#x27;t use. It was ignored and "
+            "doesn&#x27;t affect pay.")
+    inputs = client.get(url("inputs")).content.decode()
+    assert inputs.count(note) == 1
+    store_c = inputs.split('id="store-C"')[1]
+    assert note in store_c.split("<table")[0]  # above the table, at the top of Store C's tab
+    for page in ("exceptions", "overview"):
+        html = client.get(url(page)).content.decode()
+        assert "Dept" not in html and "Unexpected column" not in html
+    overview = client.get(url("overview")).content.decode()
+    assert '<span class="pill pill-info">Handled by rule</span> <strong>15</strong>' in overview
+    queue = client.get(url("exceptions")).content.decode()
+    assert '<span class="pill pill-info">Handled by rule</span> <span class="count">15</span>' in queue
+
+
 def test_exceptions_queue_shows_forms_with_suggested_values(client, period):
     html = client.get(url("exceptions")).content.decode()
     assert 'id="exc-MISSED_CLOCK_OUT-E03-2026-09-10-A"' in html

@@ -110,6 +110,9 @@ def inputs(request, run):
             referenced[(loc, row)].append(x)
     batches = {b.location.code: b for b in run.period.imports.select_related("location")}
     missing = {x.location.code: x for x in run.exceptions.filter(code="STORE_FILE_MISSING").select_related("location")}
+    notes = defaultdict(list)
+    for note in run.file_notes:
+        notes[note["location"]].append(note)
     stores = []
     for loc in m.Location.objects.all():
         batch = batches.get(loc.code)
@@ -128,7 +131,8 @@ def inputs(request, run):
                     "severity": refs[0].severity if refs else "",
                 })
         stores.append({"location": loc, "batch": batch, "rows": rows, "missing": missing.get(loc.code),
-                       "flagged": sum(1 for r in rows if r["refs"] or r["error"]), "skipped": skipped})
+                       "flagged": sum(1 for r in rows if r["refs"] or r["error"]), "skipped": skipped,
+                       "notes": notes.get(loc.code, [])})
     ctx.update({"stores": stores, "period_label": period_label(run.period)})
     return render(request, "core/inputs.html", ctx)
 

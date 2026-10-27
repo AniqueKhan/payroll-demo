@@ -223,7 +223,8 @@ def apply_scenarios(plan: Plan, shifts: list[dict]) -> tuple[list[dict], dict]:
     # 1: malformed rows in store A, unexpected column in store C (all added when writing files)
     record(1, "E02", d(2), "A", code="MALFORMED_ROW", severity="needs_review", paid_hours="8.00",
            note="row with time '9:6O' inside the period: remaining punches pair, paid and flagged for review")
-    record(1, None, None, "C", code="UNKNOWN_COLUMN", note="extra 'Dept' column")
+    record(1, None, None, "C", code="UNKNOWN_COLUMN", column="Dept",
+           note="extra 'Dept' column: a file-level note on the Inputs screen, not an exception")
     # 3: duplicate IN at store A
     find("E02", d(1))["duplicate_in"] = True
     record(3, "E02", d(1), "A", code="DUPLICATE_PUNCH")

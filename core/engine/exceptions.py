@@ -18,6 +18,7 @@ SEVERITIES = (INFO, NEEDS_REVIEW, BLOCKING)
 CODES: dict[str, tuple[str, str]] = {
     # Imports (scenarios 1, 2)
     "FILE_UNREADABLE": (BLOCKING, "Time clock file could not be read"),
+    # A file-level note, not an exception: run.py moves it to PayrollResult.notes so it never counts.
     "UNKNOWN_COLUMN": (INFO, "Unexpected column ignored"),
     # info only when the row cannot affect pay; the HR stage raises it to needs_review otherwise
     "MALFORMED_ROW": (INFO, "Row could not be parsed and was skipped"),

@@ -72,6 +72,7 @@ The demo story:
   - A shift that starts the evening before the period belongs to the previous payroll. It is not counted, not flagged and not shown.
   - A shift that starts on the last day is counted in full here, even though it ends the morning after.
   - Rows from other dates that aren't part of such a shift are skipped quietly. The Inputs screen shows how many were skipped.
+- **Extra columns.** An export with a column the format doesn't use gets a plain-language file note at the top of that store's tab on the Inputs screen. The note is kept on the run (`PayrollRun.file_notes`), but it is not an exception and is never counted. A missing required column still makes the whole file unreadable (blocking).
 - **Shifts at a store with no export.** The engine never turns these into absences. The `STORE_FILE_MISSING` blocking exception covers them.
 - **Finalizing.** `finalize` adds each loan deduction to `paid_to_date`, so whatever was capped carries into the next period. A finalized period cannot be re-run.
 
@@ -84,6 +85,6 @@ The demo story:
 
 ## Severities
 
-- `info`: a rule settled it.
+- `info`: a rule settled it. (File notes, such as an extra column, are not exceptions and don't appear in these counts.)
 - `needs_review`: a person must decide it (approve as is, or approve with a value) before finalizing.
 - `blocking`: the run cannot be finalized until the inputs are fixed and payroll is re-run.

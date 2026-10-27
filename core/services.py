@@ -245,8 +245,10 @@ def run_payroll(period: m.PayPeriod, rules_path: Optional[Path] = None,
     result = run_engine(build_inputs(period, rules), rules, decisions_to_adjustments(period, sandbox))
 
     runs(period, sandbox).filter(status=m.PayrollRun.DRAFT).delete()
-    run = m.PayrollRun.objects.create(period=period, sandbox=sandbox, rules_snapshot=rules.raw,
-                                      totals=_json(result.totals))
+    run = m.PayrollRun.objects.create(
+        period=period, sandbox=sandbox, rules_snapshot=rules.raw, totals=_json(result.totals),
+        file_notes=[{"location": n.location_code, "code": n.code, "message": n.message,
+                     "columns": n.context.get("columns", [])} for n in result.notes])
     employees = {e.employee_id: e for e in m.Employee.objects.all()}
     locations = {x.code: x for x in m.Location.objects.all()}
     m.PayrollLineRecord.objects.bulk_create(

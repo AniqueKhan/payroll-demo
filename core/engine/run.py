@@ -20,6 +20,7 @@ from .types import (
     Period, Punch, ScheduledShift,
 )
 
+FILE_NOTE_CODES = {"UNKNOWN_COLUMN"}
 SEVERITY_ORDER = {exc.BLOCKING: 0, exc.NEEDS_REVIEW: 1, exc.INFO: 2}
 
 
@@ -87,6 +88,9 @@ def run_payroll(inputs: PayrollInputs, rules: Rules, adjustments: Optional[Adjus
     adjustments = adjustments or Adjustments()
     applied: dict[str, str] = {}  # exception key -> resolution text, filled by the stages
     punches, found, missing = import_time_files(inputs, rules)
+    # Extra columns are file-level notes for the Inputs screen, not payroll exceptions: they never count.
+    notes = [e for e in found if e.code in FILE_NOTE_CODES]
+    found = [e for e in found if e.code not in FILE_NOTE_CODES]
     # Bad rows that belong to a known employee may change someone's pay: the HR stage settles them.
     bad_rows = [e for e in found if e.code == "MALFORMED_ROW" and e.employee_id]
     found = [e for e in found if not (e.code == "MALFORMED_ROW" and e.employee_id)]
@@ -116,7 +120,8 @@ def run_payroll(inputs: PayrollInputs, rules: Rules, adjustments: Optional[Adjus
             e.resolution = applied[e.key]
 
     found.sort(key=lambda e: (SEVERITY_ORDER[e.severity], e.code, e.employee_id or "", str(e.date or "")))
-    return PayrollResult(lines=lines, exceptions=found, period=period, totals=compute_totals(lines, found, inputs))
+    return PayrollResult(lines=lines, exceptions=found, period=period, totals=compute_totals(lines, found, inputs),
+                         notes=notes)
 
 
 def compute_totals(lines, found, inputs: PayrollInputs) -> dict:

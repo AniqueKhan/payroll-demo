@@ -260,6 +260,7 @@ class PayrollResult:
     exceptions: list[PayrollException]
     period: Period
     totals: dict
+    notes: list[PayrollException] = field(default_factory=list)  # file-level notes, e.g. extra columns
 
     def line_for(self, employee_id: str) -> PayrollLine:
         return next(line for line in self.lines if line.employee_id == employee_id)

@@ -48,6 +48,11 @@ class Command(BaseCommand):
             style = {"blocking": self.style.ERROR, "needs_review": self.style.WARNING}.get(x.severity, str)
             out.write(style(f"  [{x.severity}] {x.code} {who} {x.date or ''}: {x.message}"))
 
+        if run.file_notes:
+            out.write(self.style.MIGRATE_HEADING("\nFile notes (not exceptions)"))
+            for note in run.file_notes:
+                out.write(f"  {note['message']}")
+
         out.write(self.style.MIGRATE_HEADING(f"\nTop {top} lines by gross"))
         for line in run.lines.select_related("employee").order_by("-gross")[:top]:
             out.write(f"\n  {line.employee.employee_id} {line.employee.name}: gross {fmt_money(line.gross)}, "

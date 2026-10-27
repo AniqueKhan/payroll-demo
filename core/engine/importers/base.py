@@ -77,14 +77,9 @@ class Importer(ABC):
                 f"expected columns {', '.join(self.required_columns)}; missing {', '.join(missing)}"
             )]
         reader.fieldnames = header
-        for col in header:
-            if col not in self.required_columns:
-                found.append(exc.make(
-                    "UNKNOWN_COLUMN",
-                    f"Store {self.location_code}: column '{col}' is not part of the {self.format_name} format",
-                    location_code=self.location_code,
-                    resolution="Column ignored",
-                ))
+        extra = [col for col in header if col not in self.required_columns]
+        if extra:
+            found.append(self._extra_columns_note(extra))
 
         punches: list[Punch] = []
         unknown: dict[str, list[int]] = defaultdict(list)
@@ -132,6 +127,22 @@ class Importer(ABC):
             with open(file, encoding="utf-8-sig", newline="") as fh:
                 return fh.read()
         return file.read()
+
+    def _extra_columns_note(self, columns: list[str]) -> PayrollException:
+        """A file-level note, not a payroll exception: extra columns are ignored and never affect pay."""
+        names = " and ".join(", ".join(f'"{c}"' for c in columns).rsplit(", ", 1))
+        if len(columns) == 1:
+            what = f"an extra column, {names}, that we don't use. It was ignored and doesn't"
+        else:
+            what = f"extra columns, {names}, that we don't use. They were ignored and don't"
+        return exc.make(
+            "UNKNOWN_COLUMN",
+            f"Store {self.location_code}'s file has {what} affect pay. If the store changed its export "
+            f"settings, it's worth a quick look.",
+            location_code=self.location_code,
+            resolution="Ignored",
+            context={"columns": list(columns)},
+        )
 
     def _unreadable(self, why: str) -> PayrollException:
         return exc.make(

@@ -152,6 +152,8 @@ class PayrollRun(models.Model):
     finalized_at = models.DateTimeField(null=True, blank=True)
     rules_snapshot = models.JSONField(default=dict)
     totals = models.JSONField(default=dict)
+    # File-level notes (e.g. an extra column in a store export): shown on the Inputs screen, never counted.
+    file_notes = models.JSONField(default=list)
 
     class Meta:
         ordering = ["-created_at"]

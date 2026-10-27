@@ -38,10 +38,33 @@ def test_01_importers_normalize_each_format(inputs):
         ("E16", "in", "2026-09-07 22:00:00"), ("E16", "out", "2026-09-08 06:00:00")]
 
 
-def test_01_unknown_column_is_info(result, scenario):
-    col = only(result.exceptions_for("UNKNOWN_COLUMN"))
-    assert (col.severity, col.location_code) == ("info", scenario(1, code="UNKNOWN_COLUMN")["location"])
-    assert "'Dept'" in col.message
+DEPT_NOTE = ('Store C\'s file has an extra column, "Dept", that we don\'t use. It was ignored and doesn\'t affect '
+             "pay. If the store changed its export settings, it's worth a quick look.")
+
+
+def test_01_unknown_column_is_a_file_note_not_an_exception(result, scenario):
+    s = scenario(1, code="UNKNOWN_COLUMN")
+    note = only(result.notes)
+    assert (note.code, note.location_code, note.message) == ("UNKNOWN_COLUMN", s["location"], DEPT_NOTE)
+    assert note.context == {"columns": ["Dept"]}
+    assert not result.exceptions_for("UNKNOWN_COLUMN")
+    assert result.totals["exceptions_by_severity"] == {"needs_review": 7, "info": 15}
+
+
+def test_01_several_extra_columns_make_one_note(inputs):
+    _, found = StoreAImporter("A", inputs.employees).parse(io.StringIO(
+        "EmpID,Date,Time,Type,Badge,Shift Code\n1002,2026-09-07,09:00,IN,7,X\n"))
+    note = only(found)
+    assert note.message.startswith('Store A\'s file has extra columns, "Badge" and "Shift Code", that we don\'t '
+                                   "use. They were ignored and don't affect pay.")
+
+
+def test_01_missing_required_column_still_makes_the_file_unreadable(inputs, rules):
+    no_type = "EmpID,Date,Time,Dept\n1002,2026-09-07,09:00,Floor\n"
+    res = run_payroll(replace(inputs, time_files={**inputs.time_files, "A": io.StringIO(no_type)}), rules)
+    bad = only(res.exceptions_for("FILE_UNREADABLE"))
+    assert (bad.severity, bad.location_code) == ("blocking", "A") and "missing Type" in bad.message
+    assert not [n for n in res.notes if n.location_code == "A"]  # unreadable file: no column note
 
 
 def test_01_malformed_row_paid_from_remaining_punches_needs_review(result, scenario):

@@ -25,6 +25,9 @@
       No file received for this period. Nothing is estimated.
       <a href="{% url 'core:exceptions' %}#blocking">See the exception →</a></p>
   {% else %}
+    {% for note in s.notes %}
+      <p class="callout callout-note" role="note"><span class="tag tag-grey">File note</span> {{ note.message }}</p>
+    {% endfor %}
     <p class="muted small">
       Format <code>{{ s.location.export_format }}</code> · file <code>{{ s.batch.basename }}</code> ·
       {{ s.batch.row_count }} rows · columns as exported:
