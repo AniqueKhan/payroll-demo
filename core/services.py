@@ -60,10 +60,17 @@ def value_kind(record: "m.PayrollExceptionRecord") -> Optional[str]:
 # ---------------------------------------------------------------- seeding
 
 @transaction.atomic
-def seed_demo(missing_store: Optional[str] = None, output_dir: Optional[Path] = None) -> m.PayPeriod:
-    """Generate the demo files and load master data, schedules and inputs into the DB (replacing old data)."""
+def seed_demo(missing_store: Optional[str] = None, output_dir: Optional[Path] = None,
+              period_start: Optional[date] = None) -> m.PayPeriod:
+    """Generate the demo files for the period starting ``period_start`` (default: the demo's Sep 7, 2026) and
+    load master data, schedules and inputs into the DB, replacing old data.
+
+    Raises ``generator.PeriodStartError`` before touching anything if the start is not on the rules'
+    week start day.
+    """
     output_dir = Path(output_dir or generator.DEFAULT_OUTPUT)
-    manifest = generator.generate(output_dir, missing_store)
+    manifest = generator.generate(output_dir, missing_store, period_start or generator.DEFAULT_PERIOD_START,
+                                  load_rules(DEFAULT_RULES_PATH))
 
     # Sandboxes hold runs and decisions computed from the old inputs: they would no longer match.
     for model in (m.DemoSandbox, m.PayrollRun, m.ImportBatch, m.ScheduledShift, m.LeaveRecord, m.PayAddOn, m.LoanAdvance,
