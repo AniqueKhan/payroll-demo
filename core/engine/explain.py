@@ -53,3 +53,20 @@ def allocate(amount: Decimal, weights: Mapping[str, Decimal]) -> dict[str, Decim
         biggest = max(weights, key=lambda k: weights[k])
         shares[biggest] += remainder
     return shares
+
+
+def percent_shares(weights: Mapping[str, Decimal], places: int = 1) -> dict[str, Decimal]:
+    """Each weight as a percentage of the total, rounded half up to ``places`` decimals, adding up to exactly
+    100. The rounding leftover (positive or negative) goes to the largest share; with a zero total every
+    share is 0."""
+    if not weights:
+        return {}
+    step = Decimal(1).scaleb(-places)
+    total = sum(weights.values(), Decimal(0))
+    if total == 0:
+        return {k: Decimal(0).quantize(step) for k in weights}
+    shares = {k: (w / total * 100).quantize(step, rounding=ROUND_HALF_UP) for k, w in weights.items()}
+    leftover = Decimal(100) - sum(shares.values(), Decimal(0))
+    if leftover:
+        shares[max(weights, key=lambda k: weights[k])] += leftover
+    return shares

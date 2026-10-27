@@ -18,6 +18,7 @@ from django.views.decorators.http import require_POST
 from . import labels
 from . import models as m
 from . import services
+from .engine.explain import percent_shares
 from .sandbox import current_run, forget_sandbox, get_sandbox
 from .templatetags.payroll_ui import code_title
 
@@ -63,7 +64,6 @@ def department_context(run: m.PayrollRun) -> dict:
     """Labor cost by department, overall and per store, from the run totals."""
     totals = run.totals
     names = dict(m.Location.objects.values_list("code", "name"))
-    gross = Decimal(totals.get("gross", "0"))
     by_dept = totals.get("by_department", {})
 
     def rows(depts: dict) -> list[dict]:
@@ -71,8 +71,9 @@ def department_context(run: m.PayrollRun) -> dict:
                 for name, v in depts.items()]
 
     departments = rows(by_dept)
+    shares = percent_shares({d["name"]: d["gross"] for d in departments})
     for d in departments:
-        d["share"] = f"{(d['gross'] / gross * 100):.1f}" if gross else "0.0"
+        d["share"] = shares[d["name"]]
     store_departments = []
     for code, depts in totals.get("by_location_department", {}).items():
         dept_rows = rows(depts)
@@ -80,6 +81,7 @@ def department_context(run: m.PayrollRun) -> dict:
                                   "hours": sum((d["hours"] for d in dept_rows), Decimal(0)),
                                   "gross": sum((d["gross"] for d in dept_rows), Decimal(0))})
     return {"departments": departments, "store_departments": store_departments,
+            "department_share": sum(shares.values(), Decimal(0)),
             "department_hours": sum((d["hours"] for d in departments), Decimal(0)),
             "department_gross": sum((d["gross"] for d in departments), Decimal(0))}
 
