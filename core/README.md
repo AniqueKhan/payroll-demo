@@ -8,10 +8,12 @@ Multi-location retail payroll. Messy time clock exports from three stores go in.
 pip install -r requirements.txt
 python manage.py makemigrations user_management core   # migrations/ is gitignored in this repo
 python manage.py migrate
-python manage.py seed_demo                    # or: seed_demo --missing-store B
+python manage.py seed_demo                    # or: --period 2026-10-05, --missing-store B
 python manage.py run_payroll --period 2026-09-07
 pytest
 ```
+
+`seed_demo --period YYYY-MM-DD` generates the demo for any pay period. The date is the period start and must fall on the rules' `period.week_start` (Monday); a date on any other day is refused, with the nearest valid dates suggested. The period length comes from `period.length_days` in the rules. Every planted scenario is placed relative to the start date, so it lands on the same weekday in every period. The totals and exceptions are the same in every period; only the dates move. Without `--period`, the demo uses Sep 7 to 20, 2026.
 
 ## Settings
 
