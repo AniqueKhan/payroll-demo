@@ -327,6 +327,9 @@ def _clean_value(record: m.PayrollExceptionRecord, kind: str, value: dict) -> di
         loc = str(value.get("location", "")).upper()
         if loc not in (record.employee.rates or {}):
             raise DecisionError(f"{record.employee.name} has no pay rate at store '{loc}'")
+        choices = [code for code, _ in (record.context or {}).get("choices", [])]
+        if choices and loc not in choices:
+            raise DecisionError(f"Choose where the shift was worked: Store {' or Store '.join(choices)}")
         return {"location": loc}
     if kind == "leave":
         leave = str(value.get("leave", ""))
@@ -361,6 +364,9 @@ def decide(period: m.PayPeriod, exception_key: str, action: str, value: Optional
         raise DecisionError("Attendance items need no decision: follow up with the employee")
     if record.severity == INFO:
         raise DecisionError("Handled by a rule: no decision needed")
+    if action == m.ReviewDecision.APPROVE and (record.context or {}).get("choices"):
+        # A choice item: approving as is means choosing the default, stored explicitly so the trail shows it.
+        action, value = m.ReviewDecision.APPROVE_WITH_VALUE, {"location": record.context["default"]}
     if action == m.ReviewDecision.APPROVE:
         value = None
     elif action == m.ReviewDecision.APPROVE_WITH_VALUE:

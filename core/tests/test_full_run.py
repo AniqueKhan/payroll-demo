@@ -5,20 +5,20 @@ from decimal import Decimal as D
 import pytest
 
 EXPECTED_BY_STORE = {
-    "A": {"hours": D("555.80"), "gross": D("9672.09")},
-    "B": {"hours": D("416.46"), "gross": D("7321.39")},
+    "A": {"hours": D("563.80"), "gross": D("9808.09")},
+    "B": {"hours": D("408.46"), "gross": D("7193.39")},
     "C": {"hours": D("417.02"), "gross": D("7448.51")},
 }
 EXPECTED_TOTALS = {
-    "regular_pay": D("24364.40"),
+    "regular_pay": D("24372.40"),
     "overtime_pay": D("107.59"),
     "addons": D("190.00"),
     "penalties": D("0.00"),
     "absence_deductions": D("220.00"),
     "loan_deductions": D("626.00"),
-    "custom_deductions": D("1005.58"),
-    "gross": D("24441.99"),
-    "net": D("22810.41"),
+    "custom_deductions": D("1005.90"),
+    "gross": D("24449.99"),
+    "net": D("22818.09"),
 }
 EXPECTED_BY_SEVERITY = {"needs_review": 6, "info": 13, "attendance": 3}
 EXPECTED_BY_CODE = {

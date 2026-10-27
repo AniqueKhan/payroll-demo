@@ -322,9 +322,11 @@ def apply_scenarios(plan: Plan, shifts: list[dict]) -> tuple[list[dict], dict]:
     # 10: two stores, one week (same rate)
     record(10, "E06", d(0), None, code="MULTI_LOCATION_OVERTIME", week=1, hours={"A": "32.00", "B": "12.00"},
            ot_hours="4.00", premium="32.00")
-    # 11: worked at store A while scheduled at store B
+    # 11: worked at store A while scheduled at store B: paid at A (where they clocked in) unless the reviewer
+    # says it was B
     find("E10", d(9))["location"] = "A"
-    record(11, "E10", d(9), "B", code="WRONG_LOCATION", punched_at="A", pay="128.00")
+    record(11, "E10", d(9), "B", code="WRONG_LOCATION", punched_at="A", paid_at="A", pay="136.00",
+           pay_if_scheduled_store="128.00", difference="8.00")
     # 12: different rate per store, with overtime
     record(12, "E11", d(7), None, code="BLENDED_RATE_OVERTIME", week=2, weighted_rate="16.55",  # display only
            ot_hours="4.00", premium="33.09")

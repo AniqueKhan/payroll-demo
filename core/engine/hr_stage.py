@@ -354,23 +354,10 @@ class _EmployeeRun:
                           f"no schedule. Paid at {store(s.location_code)} rate", loc=s.location_code, on=s.date,
                           rows=rows)
             elif s.location_code not in sched_locs:
-                scheduled = sched[0].location_code
-                s.pay_location_code = scheduled
-                self.flag("WRONG_LOCATION", f"Scheduled at {store(scheduled)} but punches came from "
-                          f"{store(s.location_code)}. Paid at {store(scheduled)} rate and cost "
-                          f"allocated to {store(scheduled)}; confirm", loc=scheduled, on=s.date, rows=rows,
-                          context={"scheduled": scheduled, "punched": s.location_code,
-                                   "stores": sorted(self.e.rates)})
-                override = self.adjustments.location_for(self.e.id, s.date)
-                if override:
-                    s.pay_location_code = override.location_code
-                    self.line.adjustment("pay store", f"{s.date}: paid at {store(override.location_code)} rate, "
-                                         f"cost allocated to {store(override.location_code)}", override.note,
-                                         date=s.date)
-                    self.resolve("WRONG_LOCATION", s.date, scheduled,
-                                 f"Reviewer chose {store(override.location_code)}"
-                                 + (f": {override.note}" if override.note else ""))
+                self.wrong_location(s, sched[0].location_code, rows)
             note = f" (punched at {store(s.location_code)})" if s.paid_at != s.location_code else ""
+            if "wrong_location_default" in s.flags:
+                note += " (scheduled elsewhere; paid where they clocked in, pending review)"
             if "malformed_row_paid" in s.flags and not adjusted:
                 note += " (paid from remaining punches; unreadable row pending review)"
             if adjusted:
@@ -384,6 +371,41 @@ class _EmployeeRun:
             self.line.step(f"{s.date} {store(s.paid_at)}", f"{times} {fmt_hours(s.hours)} h{note}", None,
                            date=s.date, hours=s.hours, step="shift")
             bump(self.line, s.paid_at, "hours", s.hours)
+
+    def wrong_location(self, s: Shift, scheduled: str, rows) -> None:
+        """Punched at a store other than the scheduled one. By default the shift is paid where they clocked in
+        (that's where the work is on record); the reviewer can say it was the scheduled store instead."""
+        punched = s.location_code
+        punched_rate, scheduled_rate = self.rate(punched), self.rate(scheduled)
+        default = punched if punched_rate is not None else scheduled
+        choices = [[punched, f"Worked at {store(punched)} (where they clocked in)"],
+                   [scheduled, f"Worked at {store(scheduled)} (scheduled), clocked in on the wrong device"]]
+        choices = [c for c in choices if self.rate(c[0]) is not None]
+        if punched_rate is not None and scheduled_rate is not None:
+            diff = money(s.hours * abs(punched_rate - scheduled_rate))
+            message = (f"Scheduled at {store(scheduled)} ({fmt_money(scheduled_rate)}/h) but clocked in at "
+                       f"{store(punched)} ({fmt_money(punched_rate)}/h). Paid at {store(punched)}'s rate by "
+                       f"default. Difference for this shift: {fmt_money(diff)}.")
+        else:
+            message = (f"Scheduled at {store(scheduled)} but clocked in at {store(punched)}, where there is no pay "
+                       f"rate. Paid at {store(scheduled)}'s rate by default.")
+        self.flag("WRONG_LOCATION", message, loc=scheduled, on=s.date, rows=rows,
+                  context={"scheduled": scheduled, "punched": punched, "default": default, "choices": choices,
+                           "stores": [c[0] for c in choices]})
+        override = self.adjustments.location_for(self.e.id, s.date)
+        if override:
+            s.pay_location_code = override.location_code
+            label = next((text for code, text in choices if code == override.location_code),
+                         f"Worked at {store(override.location_code)}")
+            rate = self.rate(override.location_code) or ZERO
+            self.line.adjustment("pay store", f"{s.date}: reviewer chose \"{label}\": paid at "
+                                 f"{store(override.location_code)}'s rate ({fmt_money(rate)}/h), cost allocated to "
+                                 f"{store(override.location_code)}", override.note, date=s.date)
+            self.resolve("WRONG_LOCATION", s.date, scheduled, f"Reviewer chose: {label}"
+                         + (f". Note: {override.note}" if override.note else ""))
+        else:
+            s.pay_location_code = default
+            s.flags.append("wrong_location_default")
 
     def attendance(self) -> None:
         for sched in self.schedules:

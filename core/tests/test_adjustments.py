@@ -40,10 +40,10 @@ def test_hours_override_on_an_odd_punch_day(inputs, rules, result):
 
 
 def test_location_override_moves_pay_and_cost(inputs, rules, result):
-    adj = Adjustments(location_overrides=[LocationOverride("E10", date(2026, 9, 16), "A", "covered at A")])
+    adj = Adjustments(location_overrides=[LocationOverride("E10", date(2026, 9, 16), "B", "wrong device")])
     line = run_payroll(inputs, rules, adj).line_for("E10")
-    assert line.gross - result.line_for("E10").gross == D("8.00")  # 8 h at $17 (A) instead of $16 (B)
-    assert line.by_location["A"]["regular_pay"] == D("136.00")
+    assert result.line_for("E10").gross - line.gross == D("8.00")  # 8 h at $16 (B) instead of $17 (A)
+    assert set(line.by_location) == {"B"} and line.by_location["B"]["regular_pay"] == D("1280.00")
 
 
 @pytest.mark.parametrize("paid, deduction", [(True, D("0.00")), (False, D("220.00"))])

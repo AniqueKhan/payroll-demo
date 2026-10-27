@@ -79,14 +79,15 @@ def test_exceptions_queue_shows_forms_with_suggested_values(client, period):
     assert 'id="exc-MISSED_CLOCK_OUT-E03-2026-09-10-A"' in html
     assert 'name="hours" min="0" max="24" step="0.01" value="8.00"' in html
     assert 'name="amount" min="0" max="400.00" step="0.01" value="276.00"' in html
-    assert '<option value="B" selected>Store B (scheduled)</option>' in html
+    assert '<input type="radio" name="location" value="A" checked>' in html
+    assert "Worked at Store B (scheduled), clocked in on the wrong device" in html
     assert "Acknowledge" in html  # exit settlement: approve only
 
 
 def test_payroll_lists_everyone_with_markers_and_totals(client, period):
     html = client.get(url("payroll")).content.decode()
     assert html.count('class="rowlink"') == 18
-    assert "Needs review" in html and "$24,441.99" in html
+    assert "Needs review" in html and "$24,449.99" in html
 
 
 def test_decide_via_post_updates_totals_and_confirms(client, period):
@@ -96,7 +97,7 @@ def test_decide_via_post_updates_totals_and_confirms(client, period):
     html = r.content.decode()
     assert "Approved with value: Missed clock-out. 5 items still need review." in html
     assert "Your copy" in html and "Start over" in html
-    assert D(my_run(client, period).totals["gross"]) == D("24441.99") + D("124.00")
+    assert D(my_run(client, period).totals["gross"]) == D("24449.99") + D("124.00")
     assert "Reviewer adjustment" in client.get(url("employee", employee_id="E03")).content.decode()
 
 

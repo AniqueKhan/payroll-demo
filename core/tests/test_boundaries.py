@@ -59,7 +59,7 @@ def test_store_b_pairs_across_both_edges(result):
 
 def test_last_day_overnight_adds_exactly_its_pay(result):
     # 8.00 h x $15.50 at Store B, versus the same payroll without the boundary shift.
-    assert result.totals["by_location"]["B"]["gross"] == D("7197.39") + D("124.00")
+    assert result.totals["by_location"]["B"]["gross"] == D("7069.39") + D("124.00")
 
 
 @pytest.mark.django_db

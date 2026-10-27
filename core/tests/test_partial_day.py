@@ -50,13 +50,18 @@ def test_switched_on_keeps_the_old_numbers(deduction_on):
     ex = only(deduction_on.exceptions_for("HALF_DAY", "E01"))
     assert (ex.severity, ex.resolution) == ("info", "Deducted $100.00")
     assert not deduction_on.exceptions_for("PARTIAL_DAY")
-    assert (deduction_on.totals["gross"], deduction_on.totals["net"]) == (D("24341.99"), D("22714.91"))
+    assert (deduction_on.totals["gross"], deduction_on.totals["net"]) == (D("24349.99"), D("22722.59"))
     assert deduction_on.totals["exceptions_by_severity"] == {"needs_review": 6, "info": 14, "attendance": 2}
 
 
-def test_both_switches_on_give_the_numbers_before_spec_5(inputs, rules):
+def test_both_switches_on_and_e10_at_store_b_give_the_numbers_before_spec_5(inputs, rules):
+    from datetime import date
+
+    from core.engine.types import Adjustments, LocationOverride
+
+    at_b = Adjustments(location_overrides=[LocationOverride("E10", date(2026, 9, 16), "B")])
     res = run_payroll(inputs, rules.with_changes(salaried_partial_day_deduction=True,
-                                                 attendance_penalties_enabled=True))
+                                                 attendance_penalties_enabled=True), at_b)
     assert (res.totals["gross"], res.totals["net"]) == (D("24341.99"), D("22684.91"))
 
 

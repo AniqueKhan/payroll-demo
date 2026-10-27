@@ -294,14 +294,16 @@ def test_10_hours_summed_across_stores_before_overtime(result, scenario):
 
 # 11 ------------------------------------------------------------------------------------------
 
-def test_11_wrong_store_paid_and_allocated_to_scheduled_store(result, scenario):
+def test_11_wrong_store_paid_where_they_clocked_in_by_default(result, scenario):
     s = scenario(11)
     ex = only(result.exceptions_for("WRONG_LOCATION", s["employee"]))
     assert (ex.severity, ex.date, ex.location_code) == ("needs_review", s["date"], s["location"])
+    assert ex.message == ("Scheduled at Store B ($16.00/h) but clocked in at Store A ($17.00/h). Paid at Store A's "
+                          f"rate by default. Difference for this shift: ${s['difference']}.")
     line = result.line_for(s["employee"])
-    assert line.regular_pay == D("1280.00")  # 80 h at the store B rate ($16), not store A ($17)
-    assert set(line.by_location) == {"B"}
-    assert line.by_location["B"]["regular_pay"] == D("1280.00")
+    assert line.regular_pay == D("1288.00")  # 72 h at Store B ($16) + 8 h at Store A ($17)
+    assert line.by_location[s["paid_at"]]["regular_pay"] == D(s["pay"])
+    assert line.by_location["B"]["regular_pay"] == D("1152.00")
 
 
 # 12 ------------------------------------------------------------------------------------------

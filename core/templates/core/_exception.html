@@ -36,6 +36,14 @@
       <div class="fields">
         {% if item.value_kind == "hours" %}
           <label>Hours worked <input type="number" name="hours" min="0" max="24" step="0.01" value="{{ item.default }}" inputmode="decimal"></label>
+        {% elif item.value_kind == "location" and item.choices %}
+          <fieldset class="choices">
+            <legend>Where was this shift worked?</legend>
+            {% for code, label in item.choices %}
+              <label class="choice"><input type="radio" name="location" value="{{ code }}" {% if code == item.default %}checked{% endif %}>
+                {{ label }}{% if code == item.default %} <span class="muted small">(default)</span>{% endif %}</label>
+            {% endfor %}
+          </fieldset>
         {% elif item.value_kind == "location" %}
           <label>Pay at store
             <select name="location">{% for code in item.stores %}<option value="{{ code }}" {% if code == item.default %}selected{% endif %}>Store {{ code }}{% if code == item.default %} (scheduled){% endif %}</option>{% endfor %}</select>
@@ -47,12 +55,14 @@
         <label class="note">Note <input type="text" name="note" maxlength="300" placeholder="Why (optional)"></label>
       </div>
       <div class="actions">
+        {% if not item.choices %}
         <button class="btn btn-secondary" type="submit" name="action" value="approve">
           {% if x.code == "EXIT_FINAL_SETTLEMENT" %}Acknowledge{% else %}Approve as is{% endif %}
         </button>
+        {% endif %}
         {% if item.value_kind %}
           <button class="btn" type="submit" name="action" value="approve_with_value">
-            {% if item.value_kind == "hours" %}Approve with these hours{% elif item.value_kind == "location" %}Approve with this store{% else %}Approve with this amount{% endif %}
+            {% if item.value_kind == "hours" %}Approve with these hours{% elif item.value_kind == "location" and item.choices %}Confirm where it was worked{% elif item.value_kind == "location" %}Approve with this store{% else %}Approve with this amount{% endif %}
           </button>
         {% endif %}
       </div>
@@ -92,7 +102,7 @@
       <p><strong>{% if item.decision.action == "approve_with_value" %}Approved with value{% else %}Approved as is{% endif %}</strong>
         {% if item.decision.value %}:
           {% if item.decision.value.hours %}{{ item.decision.value.hours }} h{% endif %}
-          {% if item.decision.value.location %}Store {{ item.decision.value.location }}{% endif %}
+          {% if item.decision.value.location %}{% for code, label in item.choices %}{% if code == item.decision.value.location %}{{ label }}{% endif %}{% empty %}Store {{ item.decision.value.location }}{% endfor %}{% endif %}
           {% if item.decision.value.amount %}{{ item.decision.value.amount|money }}{% endif %}
         {% endif %}
         <span class="muted small">· {{ item.decision.decided_at|date:"M j, H:i" }}</span>

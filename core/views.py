@@ -176,7 +176,7 @@ def present_exception(x: m.PayrollExceptionRecord, decisions: dict, raw_rows: di
     ctx = x.context or {}
     default = {
         "hours": ctx.get("suggested_hours", ""),
-        "location": ctx.get("scheduled", ""),
+        "location": ctx.get("default", ctx.get("scheduled", "")),
         "amount": ctx.get("deducted", ""),
         "leave": "paid",
     }.get(kind or "", "")
@@ -189,6 +189,7 @@ def present_exception(x: m.PayrollExceptionRecord, decisions: dict, raw_rows: di
         "value_kind": kind,
         "default": default,
         "stores": ctx.get("stores", []),
+        "choices": ctx.get("choices", []),
     }
 
 

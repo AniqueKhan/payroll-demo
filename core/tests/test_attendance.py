@@ -53,7 +53,7 @@ def test_penalties_off_by_default_raise_net_by_the_penalty(result, penalties_on)
 
 def test_penalties_on_reproduce_the_previous_numbers(penalties_on):
     totals = penalties_on.totals
-    assert (totals["gross"], totals["net"], totals["penalties"]) == (D("24441.99"), D("22780.41"), D("30.00"))
+    assert (totals["gross"], totals["net"], totals["penalties"]) == (D("24449.99"), D("22788.09"), D("30.00"))
     assert (penalties_on.line_for("E07").net, penalties_on.line_for("E02").net) == (D("1865.90"), D("1216.12"))
     assert only(penalties_on.exceptions_for("LATE_ARRIVAL", "E02")).message.endswith("Late penalty $5.00.")
     assert only(penalties_on.exceptions_for("ABSENCE_UNINFORMED", "E07")).message.endswith(

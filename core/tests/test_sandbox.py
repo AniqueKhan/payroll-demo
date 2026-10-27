@@ -17,7 +17,7 @@ from core.models import (
 pytestmark = pytest.mark.django_db
 
 E03_KEY = "MISSED_CLOCK_OUT|E03|2026-09-10|A"
-BASE_GROSS = D("24441.99")
+BASE_GROSS = D("24449.99")
 
 
 @pytest.fixture
@@ -55,7 +55,7 @@ def page(client, name, **kw):
 
 def test_new_visitor_sees_the_baseline(client, period):
     overview = page(client, "overview")
-    assert "6 items need your review" in overview and "$24,441.99" in overview and "Clean demo" in overview
+    assert "6 items need your review" in overview and "$24,449.99" in overview and "Clean demo" in overview
     assert "E03" in page(client, "exceptions") and "Approve with these hours" in page(client, "exceptions")
 
 
@@ -75,7 +75,7 @@ def test_first_approval_creates_exactly_one_sandbox_and_changes_totals(client, p
     assert D(run.totals["gross"]) == BASE_GROSS + D("124.00")
     approve_e03(client, hours="7")  # a second action reuses the same sandbox
     assert DemoSandbox.objects.count() == 1
-    assert "$24,550.49" in page(client, "overview")  # 7 h x $15.50 = $108.50 over the baseline
+    assert "$24,558.49" in page(client, "overview")  # 7 h x $15.50 = $108.50 over the baseline
 
 
 def test_sandbox_run_starts_identical_to_the_baseline(period):
@@ -98,7 +98,7 @@ def test_two_visitors_are_isolated(period):
 
     # B still sees E03 open and the original totals.
     overview_b = page(b, "overview")
-    assert "6 items need your review" in overview_b and "$24,441.99" in overview_b
+    assert "6 items need your review" in overview_b and "$24,449.99" in overview_b
     assert 'value="approve_with_value"' in page(b, "exceptions").split('id="exc-MISSED_CLOCK_OUT-E03')[1][:4000]
     assert "Reviewer adjustment" not in page(b, "employee", employee_id="E03")
 

@@ -37,7 +37,7 @@ Then run `python manage.py runserver` and open http://127.0.0.1:8000/.
 The demo story:
 1. **Overview** shows that 6 items need review, and 3 attendance items to discuss.
 2. **Inputs** shows each store's raw export. Flagged rows link to their exception.
-3. **Exceptions** is where you resolve each item. Approve it as is, or approve it with a value: hours, a store, a leave type, or a loan amount.
+3. **Exceptions** is where you resolve each item. Approve it as is, or approve it with a value: hours, where a shift was worked, or a loan amount. An absence without notice can optionally be recorded as paid or unpaid leave.
 4. Totals update after every decision.
 5. **Finalize** becomes available once nothing is open. **Reopen** puts the run back to draft so you can walk through it again.
 
@@ -82,6 +82,7 @@ The demo story:
   - Rows from other dates that aren't part of such a shift are skipped quietly. The Inputs screen shows how many were skipped.
 - **Extra columns.** An export with a column the format doesn't use gets a plain-language file note at the top of that store's tab on the Inputs screen. The note is kept on the run (`PayrollRun.file_notes`), but it is not an exception and is never counted. A missing required column still makes the whole file unreadable (blocking).
 - **Labor cost by department.** Each export may carry a department column: `Dept` in store_a and store_c, `department` in store_b. A shift's department comes from its clock-in row; a missing or blank one is `Unassigned`. Each store's labor cost (regular + overtime + add-ons - absence deductions) is split across its departments by the hours worked in each, with rounding remainders kept, so department totals add up exactly to store totals and to gross. Each payroll line stores this split (`by_department`). The Overview, Payroll and employee screens show it overall and per store.
+- **Clocked in at a store other than the scheduled one.** By default the shift is paid at the rate of the store where the employee clocked in, and its cost goes to that store (and to the department on the clock-in row). The review item states both rates and the difference for the shift. The reviewer chooses "Worked at Store A (where they clocked in)" or "Worked at Store B (scheduled), clocked in on the wrong device"; the choice is stored as a decision (approving as is stores the default) and the trail shows it. If there is no pay rate at the punch store, the scheduled store is the default.
 - **Shifts at a store with no export.** The engine never turns these into absences. The `STORE_FILE_MISSING` blocking exception covers them.
 - **Finalizing.** `finalize` adds each loan deduction to `paid_to_date`, so whatever was capped carries into the next period. A finalized period cannot be re-run.
 
