@@ -1,0 +1,19 @@
+{% load payroll_ui %}
+<section class="card">
+  <details {% if open %}open{% endif %}>
+    <summary>Labor cost by store and department</summary>
+    <div class="table-wrap" style="margin-top: 12px">
+      <table>
+        <thead><tr><th>Store</th><th>Department</th><th class="num">Hours</th><th class="num">Labor cost</th></tr></thead>
+        <tbody>
+        {% for s in store_departments %}
+          {% for d in s.departments %}
+            <tr><td>{% if forloop.first %}<strong>{{ s.code }}</strong> {{ s.name }}{% endif %}</td><td>{{ d.name }}</td><td class="num">{{ d.hours|hours }}</td><td class="num">{{ d.gross|money }}</td></tr>
+          {% endfor %}
+          <tr class="subtotal"><td></td><td class="muted">Store {{ s.code }} total</td><td class="num">{{ s.hours|hours }}</td><td class="num"><strong>{{ s.gross|money }}</strong></td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+</section>

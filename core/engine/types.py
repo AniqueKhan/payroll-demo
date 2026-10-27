@@ -52,6 +52,10 @@ class Punch:
     timestamp: datetime
     kind: PunchKind
     source_row: int
+    department: Optional[str] = None  # from the export's optional department column
+
+
+UNASSIGNED = "Unassigned"
 
 
 @dataclass
@@ -69,6 +73,12 @@ class Shift:
     @property
     def paid_at(self) -> str:
         return self.pay_location_code or self.location_code
+
+    @property
+    def department(self) -> str:
+        """Taken from the clock-in row; a shift without one (or with a blank one) is Unassigned."""
+        clock_in = next((p for p in self.raw_punches if p.kind in ("in", None)), None)
+        return (clock_in.department if clock_in else None) or UNASSIGNED
 
 
 @dataclass(frozen=True)
@@ -149,6 +159,7 @@ class PayrollLine:
     net: Decimal = ZERO
     by_location: dict = field(default_factory=dict)
     trail: list[CalcStep] = field(default_factory=list)
+    by_department: dict = field(default_factory=dict)  # {store: {department: {hours, pay fields, gross}}}
     hours: Decimal = ZERO  # hours worked and paid (leave excluded)
     ot_hours: Decimal = ZERO
     stage: str = "hr"  # stage that new trail steps are filed under

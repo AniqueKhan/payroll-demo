@@ -136,7 +136,7 @@ def store_raw_rows(location: m.Location, period: m.PayPeriod, path: Path, employ
     header = [h.strip() for h in header]
     batch = m.ImportBatch.objects.create(
         location=location, period=period, filename=str(path), status="imported", row_count=len(body),
-        columns=header, unknown_columns=[c for c in header if c not in importer.required_columns])
+        columns=header, unknown_columns=[c for c in header if c not in importer.supported_columns])
     m.RawImportRow.objects.bulk_create(
         m.RawImportRow(batch=batch, row_number=n, raw=dict(zip(header, values)),
                        parse_error="; ".join(errors.get(n, [])))
@@ -260,7 +260,8 @@ def run_payroll(period: m.PayPeriod, rules_path: Optional[Path] = None,
             penalties=line.penalties, absence_deductions=line.absence_deductions,
             loan_deductions=line.loan_deductions, custom_deductions=line.custom_deductions,
             gross=line.gross, net=line.net, hours=line.hours, overtime_hours=line.ot_hours,
-            by_location=_json(line.by_location), trail=[s.to_dict() for s in line.trail],
+            by_location=_json(line.by_location), by_department=_json(line.by_department),
+            trail=[s.to_dict() for s in line.trail],
         )
         for line in result.lines)
     m.PayrollExceptionRecord.objects.bulk_create(

@@ -227,6 +227,7 @@ class PayrollLineRecord(models.Model):
     hours = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     overtime_hours = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     by_location = models.JSONField(default=dict)
+    by_department = models.JSONField(default=dict)  # {store: {department: {hours, pay fields, gross}}}
     trail = models.JSONField(default=list)
 
     class Meta:

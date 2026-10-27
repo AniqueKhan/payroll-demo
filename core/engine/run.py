@@ -138,5 +138,18 @@ def compute_totals(lines, found, inputs: PayrollInputs) -> dict:
     totals = {f: sum((getattr(line, f) for line in lines), ZERO) for f in fields}
     totals["employees"] = len(lines)
     totals["by_location"] = by_location
+    # Labor cost by department, overall and per store (gross = regular + OT + add-ons - absence).
+    by_department: dict[str, dict[str, Decimal]] = {}
+    by_location_department: dict[str, dict[str, dict[str, Decimal]]] = {}
+    for line in lines:
+        for store, depts in line.by_department.items():
+            for dept, bucket in depts.items():
+                for slot in (by_department.setdefault(dept, {"hours": ZERO, "gross": ZERO}),
+                             by_location_department.setdefault(store, {}).setdefault(
+                                 dept, {"hours": ZERO, "gross": ZERO})):
+                    slot["hours"] += bucket["hours"]
+                    slot["gross"] += bucket["gross"]
+    totals["by_department"] = dict(sorted(by_department.items()))
+    totals["by_location_department"] = {s: dict(sorted(d.items())) for s, d in sorted(by_location_department.items())}
     totals["exceptions_by_severity"] = dict(Counter(e.severity for e in found))
     return totals

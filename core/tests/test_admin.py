@@ -48,7 +48,7 @@ def test_readable_examples(seeded):
     assert one(LoanAdvance, employee__employee_id="E16") == "E16 Sage Delgado · loan $2,000.00 · $400.00 per period"
     assert one(ImportBatch, location__code="C") == "Store C · store_c_timeclock.csv · Sep 7 to 20 · 56 rows"
     raw = RawImportRow.objects.get(batch__location__code="A", raw__Time="9:6O")
-    assert str(raw) == f"Store A · row {raw.row_number} · 1002, 2026-09-09, 9:6O, IN"
+    assert str(raw) == f"Store A · row {raw.row_number} · 1002, 2026-09-09, 9:6O, IN, Checkout"
     assert one(Location, code="A") == "Store A · Northgate Market"
     assert one(Employee, employee_id="E07") == "E07 Harper Lane"
     assert one(PayPeriod) == "Sep 7 to 20, 2026"

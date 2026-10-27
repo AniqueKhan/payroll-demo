@@ -113,6 +113,28 @@ CORE_EMPLOYEES = [
     _emp("E18", "Rowan Pike", "C", {"C": "15.00", "A": "16.00"}, ext={"C": "Rowan Pike", "A": "1018"}),
 ]
 
+# Departments, written to every export's optional department column. Most people stay in one.
+DEPARTMENTS = ["Floor", "Stockroom", "Checkout"]
+CORE_DEPARTMENTS = {
+    "E01": "Floor", "E02": "Checkout", "E03": "Stockroom", "E04": "Stockroom", "E05": "Checkout",
+    "E06": "Floor", "E07": "Floor", "E08": "Checkout", "E09": "Stockroom", "E10": "Floor", "E11": "Checkout",
+    "E12": "Stockroom", "E13": "Floor", "E14": "Floor", "E15": "Floor", "E16": "Checkout", "E17": "Stockroom",
+    "E18": "Checkout",
+}
+
+
+def department_of(shift: dict, plan: "Plan") -> str:
+    """Department on the shift's rows ("" = left blank by the store's clock, which means Unassigned)."""
+    emp, loc = shift["employee_id"], shift["location"]
+    if emp == "E06" and loc == "B":
+        return "Stockroom"  # works two departments: Floor at Store A, Stockroom at Store B
+    if emp == "E15" and shift["date"] >= plan.day(7):
+        return "Checkout"  # works two departments: Floor in week 1, Checkout in week 2
+    if emp == "E18" and loc == "A":
+        return ""  # borrowed shifts at Store A: that clock has no department set for them
+    return CORE_DEPARTMENTS.get(emp) or DEPARTMENTS[int(emp[1:]) % len(DEPARTMENTS)]
+
+
 # Employees whose punches drift a few minutes from the schedule (background noise).
 JITTER = {"E09", "E17", "E18"}
 
@@ -266,8 +288,8 @@ def apply_scenarios(plan: Plan, shifts: list[dict]) -> tuple[list[dict], dict]:
     # 1: malformed rows in store A, unexpected column in store C (all added when writing files)
     record(1, "E02", d(2), "A", code="MALFORMED_ROW", severity="needs_review", paid_hours="8.00",
            note="row with time '9:6O' inside the period: remaining punches pair, paid and flagged for review")
-    record(1, None, None, "C", code="UNKNOWN_COLUMN", column="Dept",
-           note="extra 'Dept' column: a file-level note on the Inputs screen, not an exception")
+    record(1, None, None, "C", code="UNKNOWN_COLUMN", column="Badge",
+           note="extra 'Badge' column: a file-level note on the Inputs screen, not an exception")
     # 3: duplicate IN at store A
     find("E02", d(1))["duplicate_in"] = True
     record(3, "E02", d(1), "A", code="DUPLICATE_PUNCH")
@@ -328,6 +350,12 @@ def apply_scenarios(plan: Plan, shifts: list[dict]) -> tuple[list[dict], dict]:
                    "out": at(0, "06:00"), "edge": True})
     record(19, "E12", d(-1), "B", code=None, hours="0.00",
            note="starts the evening before the period: belongs to the previous payroll, not counted or shown")
+    # 20: labor cost by department (taken from the clock-in row; blank = Unassigned)
+    record(20, "E06", None, None, code=None, departments={"A": ["Floor"], "B": ["Stockroom"]})
+    record(20, "E15", None, "C", code=None, departments={"C": ["Checkout", "Floor"]},
+           note="Floor in week 1, Checkout in week 2")
+    record(20, "E18", d(3), "A", code=None, departments={"A": ["Unassigned"], "C": ["Checkout"]},
+           note="Store A's clock has no department for these borrowed shifts")
     return shifts, scenarios
 
 
@@ -418,34 +446,35 @@ def write_export(path: Path, location: dict, shifts: list[dict], ext: dict, plan
     if fmt == "store_a":
         rows = []
         for s in mine:
-            emp = ext[(s["employee_id"], code)]
-            rows.append([emp, s["in"].date().isoformat(), s["in"].strftime("%H:%M"), "IN"])
+            emp, dept = ext[(s["employee_id"], code)], department_of(s, plan)
+            rows.append([emp, s["in"].date().isoformat(), s["in"].strftime("%H:%M"), "IN", dept])
             if s.get("duplicate_in"):
                 rows.append([emp, s["in"].date().isoformat(), (s["in"] + timedelta(minutes=1)).strftime("%H:%M"),
-                             "IN"])
+                             "IN", dept])
             if s["out"]:
-                rows.append([emp, s["out"].date().isoformat(), s["out"].strftime("%H:%M"), "OUT"])
-        if code == "A":
-            rows.append([ext[("E02", "A")], plan.day(2).isoformat(), "9:6O", "IN"])  # scenario 1: malformed row
+                rows.append([emp, s["out"].date().isoformat(), s["out"].strftime("%H:%M"), "OUT", dept])
+        if code == "A":  # scenario 1: malformed row
+            rows.append([ext[("E02", "A")], plan.day(2).isoformat(), "9:6O", "IN", CORE_DEPARTMENTS["E02"]])
         rows.sort(key=lambda r: (r[1], r[0], r[2]))
-        _write_csv(path, ["EmpID", "Date", "Time", "Type"], rows)
+        _write_csv(path, ["EmpID", "Date", "Time", "Type", "Dept"], rows)
     elif fmt == "store_b":
         rows = []
         for s in mine:
             times = s.get("extra_punches") or [x for x in (s["in"], s["out"]) if x]
-            rows.extend([ext[(s["employee_id"], code)], x] for x in times)
+            rows.extend([ext[(s["employee_id"], code)], x, department_of(s, plan)] for x in times)
         rows.sort(key=lambda r: (r[1], r[0]))
-        _write_csv(path, ["employee_code", "punch_datetime"],
-                   [[c, x.strftime("%m/%d/%Y %I:%M %p")] for c, x in rows])
+        _write_csv(path, ["employee_code", "punch_datetime", "department"],
+                   [[c, x.strftime("%m/%d/%Y %I:%M %p"), dept] for c, x, dept in rows])
     else:
         rows = []
-        planted = code == "C"  # scenario 1: Store C's export carries an extra 'Dept' column
+        planted = code == "C"  # scenario 1: Store C's export carries an extra 'Badge' column we don't use
         for s in mine:
             out = s["out"].strftime("%H:%M") if s["out"] else ""
-            row = [ext[(s["employee_id"], code)], s["date"].isoformat(), s["in"].strftime("%H:%M"), out]
-            rows.append(row + ["Floor"] if planted else row)
+            row = [ext[(s["employee_id"], code)], s["date"].isoformat(), s["in"].strftime("%H:%M"), out,
+                   department_of(s, plan)]
+            rows.append(row + [f"B-{s['employee_id'][1:]}"] if planted else row)
         rows.sort(key=lambda r: (r[1], r[0]))
-        _write_csv(path, ["Name", "Date", "In", "Out"] + (["Dept"] if planted else []), rows)
+        _write_csv(path, ["Name", "Date", "In", "Out", "Dept"] + (["Badge"] if planted else []), rows)
 
 
 def generate(output_dir: Path | str = DEFAULT_OUTPUT, missing_store: Optional[str] = None,

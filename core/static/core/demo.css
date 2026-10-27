@@ -112,6 +112,7 @@ tfoot th, tfoot td { background: #f8fafb; border-top: 2px solid var(--line); bor
 tbody tr:last-child td { border-bottom: 0; }
 .table-wrap th, .table-wrap td { white-space: nowrap; }
 tr.clickable { cursor: pointer; }
+tr.subtotal td { background: #f8fafb; }
 tr.clickable:hover td { background: var(--accent-soft); }
 table.raw td { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .82rem; white-space: nowrap; }
 table.raw td:last-child { font-family: var(--font); white-space: normal; min-width: 220px; }

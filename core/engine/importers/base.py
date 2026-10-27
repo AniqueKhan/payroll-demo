@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import io
 from abc import ABC, abstractmethod
+from dataclasses import replace
 from collections import defaultdict
 from datetime import date, timedelta
 from pathlib import Path
@@ -30,6 +31,11 @@ def normalize_id(value: str) -> str:
 class Importer(ABC):
     format_name: str = ""
     required_columns: tuple[str, ...] = ()
+    department_column: Optional[str] = None  # optional column; the department is read from the clock-in row
+
+    @property
+    def supported_columns(self) -> tuple[str, ...]:
+        return self.required_columns + ((self.department_column,) if self.department_column else ())
 
     def __init__(self, location_code: str, employees: Iterable[Employee]):
         self.location_code = location_code
@@ -77,7 +83,7 @@ class Importer(ABC):
                 f"expected columns {', '.join(self.required_columns)}; missing {', '.join(missing)}"
             )]
         reader.fieldnames = header
-        extra = [col for col in header if col not in self.required_columns]
+        extra = [col for col in header if col not in self.supported_columns]
         if extra:
             found.append(self._extra_columns_note(extra))
 
@@ -98,7 +104,9 @@ class Importer(ABC):
                     unknown[ident].append(source_row)
                 continue
             try:
-                punches.extend(self.parse_row(row, employee_id, source_row))
+                parsed = self.parse_row(row, employee_id, source_row)
+                department = row.get(self.department_column, "") if self.department_column else ""
+                punches.extend(replace(p, department=department or None) for p in parsed)
             except (RowError, ValueError) as e:
                 if not in_period:
                     continue  # an unreadable punch next to the period cannot affect this payroll

@@ -7,9 +7,9 @@ from typing import Iterable, Optional
 
 from . import exceptions as exc
 from .config import Rules
-from .explain import fmt_hours, fmt_money, fmt_pct, money
+from .explain import allocate, fmt_hours, fmt_money, fmt_pct, money
 from .hr_stage import EmployeeHR, bump, compute_premium
-from .types import ZERO, Adjustments, LoanAdvance, PayAddOn, PayrollException, Period, exception_key
+from .types import UNASSIGNED, ZERO, Adjustments, LoanAdvance, PayAddOn, PayrollException, Period, exception_key
 
 
 def apply_addons(hr: EmployeeHR, addons: list[PayAddOn], rules: Rules) -> list[PayrollException]:
@@ -53,6 +53,36 @@ def compute_gross(hr: EmployeeHR) -> None:
     for bucket in line.by_location.values():
         bucket["gross"] = (bucket["regular_pay"] + bucket["overtime_pay"] + bucket["addons"]
                            - bucket["absence_deductions"])
+    split_by_department(hr)
+
+
+DEPARTMENT_MONEY = ("regular_pay", "overtime_pay", "addons", "absence_deductions")
+
+
+def split_by_department(hr: EmployeeHR) -> None:
+    """Split each store's labor cost across departments, by the hours worked in each department there.
+
+    Hours are exact per department. Each money field is split with ``allocate`` (rounding remainder to the
+    largest share), so every department figure adds up exactly to the store figure. Cost at a store with no
+    hours worked (paid leave, salary without shifts) is Unassigned.
+    """
+    line = hr.line
+    hours: dict[str, dict[str, Decimal]] = defaultdict(lambda: defaultdict(lambda: ZERO))
+    for s in hr.shifts:
+        if s.hours:
+            hours[s.paid_at][s.department] += s.hours
+    line.by_department = {}
+    for store, bucket in line.by_location.items():
+        weights = dict(hours.get(store) or {}) or {UNASSIGNED: ZERO}
+        if not any(weights.values()):
+            weights = {k: Decimal(1) for k in weights}
+        depts = {d: {"hours": hours.get(store, {}).get(d, ZERO)} for d in weights}
+        for field in DEPARTMENT_MONEY:
+            for d, amount in allocate(bucket[field], weights).items():
+                depts[d][field] = amount
+        for d in depts.values():
+            d["gross"] = d["regular_pay"] + d["overtime_pay"] + d["addons"] - d["absence_deductions"]
+        line.by_department[store] = dict(sorted(depts.items()))
 
 
 def apply_loans(hr: EmployeeHR, loans: list[LoanAdvance], period: Period, rules: Rules,

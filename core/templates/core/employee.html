@@ -56,13 +56,16 @@
 
 <div class="grid two">
   <section class="card">
-    <h2>By store</h2>
+    <h2>By store and department</h2>
     <div class="table-wrap">
       <table>
         <thead><tr><th>Store</th><th class="num">Hours</th><th class="num">Regular</th><th class="num">OT</th><th class="num">Add-ons</th><th class="num">Absence</th><th class="num">Cost (gross)</th></tr></thead>
         <tbody>
-          {% for code, name, b in by_location %}
+          {% for code, name, b, depts in by_location %}
             <tr><td><strong>{{ code }}</strong> {{ name }}</td><td class="num">{{ b.hours|hours }}</td><td class="num">{{ b.regular_pay|money }}</td><td class="num">{{ b.overtime_pay|money }}</td><td class="num">{{ b.addons|money }}</td><td class="num">{{ b.absence_deductions|money }}</td><td class="num">{{ b.gross|money }}</td></tr>
+            {% for dept, d in depts %}
+              <tr class="subtotal"><td class="muted">&nbsp;&nbsp;{{ dept }}</td><td class="num">{{ d.hours|hours }}</td><td class="num">{{ d.regular_pay|money }}</td><td class="num">{{ d.overtime_pay|money }}</td><td class="num">{{ d.addons|money }}</td><td class="num">{{ d.absence_deductions|money }}</td><td class="num">{{ d.gross|money }}</td></tr>
+            {% endfor %}
           {% empty %}
             <tr><td colspan="7" class="muted">No hours or cost this period.</td></tr>
           {% endfor %}

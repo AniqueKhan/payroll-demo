@@ -59,6 +59,31 @@ def period_label(period: m.PayPeriod) -> str:
     return labels.period_label(period.start_date, period.end_date)
 
 
+def department_context(run: m.PayrollRun) -> dict:
+    """Labor cost by department, overall and per store, from the run totals."""
+    totals = run.totals
+    names = dict(m.Location.objects.values_list("code", "name"))
+    gross = Decimal(totals.get("gross", "0"))
+    by_dept = totals.get("by_department", {})
+
+    def rows(depts: dict) -> list[dict]:
+        return [{"name": name, "hours": Decimal(v["hours"]), "gross": Decimal(v["gross"])}
+                for name, v in depts.items()]
+
+    departments = rows(by_dept)
+    for d in departments:
+        d["share"] = f"{(d['gross'] / gross * 100):.1f}" if gross else "0.0"
+    store_departments = []
+    for code, depts in totals.get("by_location_department", {}).items():
+        dept_rows = rows(depts)
+        store_departments.append({"code": code, "name": names.get(code, ""), "departments": dept_rows,
+                                  "hours": sum((d["hours"] for d in dept_rows), Decimal(0)),
+                                  "gross": sum((d["gross"] for d in dept_rows), Decimal(0))})
+    return {"departments": departments, "store_departments": store_departments,
+            "department_hours": sum((d["hours"] for d in departments), Decimal(0)),
+            "department_gross": sum((d["gross"] for d in departments), Decimal(0))}
+
+
 def raw_row_index(period: m.PayPeriod, wanted: set[tuple[str, int]]) -> dict[tuple[str, int], m.RawImportRow]:
     """The raw rows referenced by exceptions, keyed by (store, row number). Loads only those rows."""
     by_store: dict[str, set[int]] = defaultdict(set)
@@ -104,6 +129,7 @@ def overview(request, run):
         "approved_count": run.exceptions.filter(severity="needs_review", status="approved").count(),
         "blockers": services.finalize_blockers(run),
         "decision_count": services.decisions(run.period, run.sandbox).count(),
+        **department_context(run),
     })
     return render(request, "core/overview.html", ctx)
 
@@ -226,7 +252,7 @@ def payroll(request, run):
     ctx.update({"lines": lines, "totals": totals, "markers": employee_markers(run),
                 "sort": request.GET.get("sort", ""), "q": q, "store": store,
                 "stores": m.Location.objects.all(), "total_count": all_lines.count(),
-                "filtered": bool(q or store)})
+                "filtered": bool(q or store), **department_context(run)})
     return render(request, "core/payroll.html", ctx)
 
 
@@ -255,7 +281,8 @@ def employee(request, run, employee_id):
         "line": line,
         "rates": [(code, names.get(code, ""), rate) for code, rate in sorted(emp.rates.items())],
         "sections": sections,
-        "by_location": [(code, names.get(code, ""), b) for code, b in sorted(line.by_location.items())],
+        "by_location": [(code, names.get(code, ""), b, sorted((line.by_department or {}).get(code, {}).items()))
+                        for code, b in sorted(line.by_location.items())],
         "employee_exceptions": exceptions_,
         "adjustment_count": sum(1 for s in line.trail if (s.get("refs") or {}).get("adjustment")),
     })

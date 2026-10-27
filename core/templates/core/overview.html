@@ -52,6 +52,10 @@
     </div>
   </section>
 
+  {% include "core/_departments.html" %}
+</div>
+
+<div class="grid two">
   <section class="card">
     <h2>Exceptions</h2>
     <ul class="sev-list">
@@ -63,6 +67,7 @@
     </ul>
     <p><a href="{% url 'core:exceptions' %}">Open the review queue →</a></p>
   </section>
+  {% include "core/_store_departments.html" %}
 </div>
 
 <section class="card">

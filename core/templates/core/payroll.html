@@ -7,6 +7,11 @@
   <p class="lead">The "after": one line per employee. Open a row to see every step of the calculation.</p>
 </section>
 
+<div class="grid two">
+  {% include "core/_departments.html" %}
+  {% include "core/_store_departments.html" %}
+</div>
+
 <section class="card">
   <form class="filters" method="get" action="{% url 'core:payroll' %}" role="search">
     <label>Search <input type="search" name="q" value="{{ q }}" placeholder="Name or ID, e.g. E07"></label>

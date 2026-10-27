@@ -38,7 +38,7 @@ def test_01_importers_normalize_each_format(inputs):
         ("E16", "in", "2026-09-07 22:00:00"), ("E16", "out", "2026-09-08 06:00:00")]
 
 
-DEPT_NOTE = ('Store C\'s file has an extra column, "Dept", that we don\'t use. It was ignored and doesn\'t affect '
+DEPT_NOTE = ('Store C\'s file has an extra column, "Badge", that we don\'t use. It was ignored and doesn\'t affect '
              "pay. If the store changed its export settings, it's worth a quick look.")
 
 
@@ -46,7 +46,7 @@ def test_01_unknown_column_is_a_file_note_not_an_exception(result, scenario):
     s = scenario(1, code="UNKNOWN_COLUMN")
     note = only(result.notes)
     assert (note.code, note.location_code, note.message) == ("UNKNOWN_COLUMN", s["location"], DEPT_NOTE)
-    assert note.context == {"columns": ["Dept"]}
+    assert note.context == {"columns": ["Badge"]}
     assert not result.exceptions_for("UNKNOWN_COLUMN")
     assert result.totals["exceptions_by_severity"] == {"needs_review": 7, "info": 15}
 
@@ -88,9 +88,9 @@ def test_01_malformed_row_paid_from_remaining_punches_needs_review(result, scena
 def test_01_malformed_row_with_unpairable_remainder_counts_zero(inputs, rules):
     # E05 on 8 Sep: the OUT row is unreadable, leaving a lone IN that cannot be paired.
     lines = inputs.time_files["A"].read_text().splitlines()
-    out_row = "1005,2026-09-08,17:00,OUT"
+    out_row = "1005,2026-09-08,17:00,OUT,Checkout"
     assert out_row in lines
-    store_a = "\n".join(x if x != out_row else "1005,2026-09-08,1X:00,OUT" for x in lines) + "\n"
+    store_a = "\n".join(x if x != out_row else "1005,2026-09-08,1X:00,OUT,Checkout" for x in lines) + "\n"
     res = run_payroll(replace(inputs, time_files={**inputs.time_files, "A": io.StringIO(store_a)}), rules)
 
     bad = only(res.exceptions_for("MALFORMED_ROW", "E05"))

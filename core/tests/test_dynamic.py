@@ -66,9 +66,9 @@ def test_extra_stores_cycle_the_three_export_formats(bigger):
     assert [(loc.code, loc.export_format) for loc in inputs.locations[3:]] == [
         ("D", "store_a"), ("E", "store_b"), ("F", "store_c")]
     assert manifest["time_files"]["F"] == "store_f_timeclock.csv"
-    assert (folder / "store_d_timeclock.csv").read_text().startswith("EmpID,Date,Time,Type\n")
-    assert (folder / "store_e_timeclock.csv").read_text().startswith("employee_code,punch_datetime\n")
-    assert (folder / "store_f_timeclock.csv").read_text().startswith("Name,Date,In,Out\n")  # no planted column
+    assert (folder / "store_d_timeclock.csv").read_text().startswith("EmpID,Date,Time,Type,Dept\n")
+    assert (folder / "store_e_timeclock.csv").read_text().startswith("employee_code,punch_datetime,department\n")
+    assert (folder / "store_f_timeclock.csv").read_text().startswith("Name,Date,In,Out,Dept\n")  # no Badge
 
 
 def test_same_arguments_produce_identical_output(tmp_path, rules, bigger):
