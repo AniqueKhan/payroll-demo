@@ -57,6 +57,36 @@
         {% endif %}
       </div>
     </form>
+  {% elif x.severity == "attendance" and item.value_kind == "leave" and x.status == "open" and not is_final %}
+    <form class="decide decide-optional" method="post" action="{% url 'core:decide' %}">
+      {% csrf_token %}
+      <input type="hidden" name="exception_key" value="{{ x.exception_key }}">
+      <input type="hidden" name="action" value="approve_with_value">
+      <p class="muted small">Optional. If the absence turns out to be leave, record it here. It never blocks finalizing.</p>
+      <div class="fields">
+        <label>Record as
+          <select name="leave">
+            <option value="paid" selected>Paid leave (no deduction for the day)</option>
+            <option value="unpaid">Unpaid leave (the day isn't paid)</option>
+          </select>
+        </label>
+        <label class="note">Note <input type="text" name="note" maxlength="300" placeholder="Why (optional)"></label>
+      </div>
+      <div class="actions"><button class="btn btn-secondary" type="submit">Record as leave</button></div>
+    </form>
+  {% elif x.severity == "attendance" and item.decision %}
+    <div class="decision">
+      <p><strong>Recorded as {{ item.decision.value.leave }} leave</strong>
+        <span class="muted small">· {{ item.decision.decided_at|date:"M j, H:i" }}</span></p>
+      {% if item.decision.note %}<p class="muted">Note: {{ item.decision.note }}</p>{% endif %}
+      {% if not is_final %}
+      <form method="post" action="{% url 'core:undo' %}">
+        {% csrf_token %}
+        <input type="hidden" name="exception_key" value="{{ x.exception_key }}">
+        <button class="btn btn-link" type="submit">Undo</button>
+      </form>
+      {% endif %}
+    </div>
   {% elif x.severity == "needs_review" and item.decision %}
     <div class="decision">
       <p><strong>{% if item.decision.action == "approve_with_value" %}Approved with value{% else %}Approved as is{% endif %}</strong>

@@ -171,13 +171,14 @@ def inputs(request, run):
 
 
 def present_exception(x: m.PayrollExceptionRecord, decisions: dict, raw_rows: dict) -> dict:
-    kind = services.value_kind(x) if x.severity == "needs_review" else None
+    kind = services.value_kind(x) if x.severity in ("needs_review", "attendance") else None
     decision = decisions.get(x.exception_key)
     ctx = x.context or {}
     default = {
         "hours": ctx.get("suggested_hours", ""),
         "location": ctx.get("scheduled", ""),
         "amount": ctx.get("deducted", ""),
+        "leave": "paid",
     }.get(kind or "", "")
     return {
         "record": x,
@@ -313,7 +314,7 @@ def _no_sandbox(request, message: str):
 def decide(request):
     key = request.POST.get("exception_key", "")
     action = request.POST.get("action", "")
-    value = {k: request.POST.get(k, "") for k in ("hours", "location", "amount")}
+    value = {k: request.POST.get(k, "") for k in ("hours", "location", "amount", "leave")}
     sandbox = get_sandbox(request, create=True)
     if sandbox is None:
         return redirect("core:overview")
@@ -324,6 +325,8 @@ def decide(request):
         messages.error(request, str(e))
         return redirect(reverse("core:exceptions") + f"#{anchor(key)}")
     title = code_title(key.split("|")[0])
+    if value["leave"] and key.startswith("ABSENCE_UNINFORMED|"):
+        return _after_change(request, new_run, f"Recorded as {value['leave']} leave: {title}.", anchor(key))
     verb = "Approved with value" if action == m.ReviewDecision.APPROVE_WITH_VALUE else "Approved"
     return _after_change(request, new_run, f"{verb}: {title}.", anchor(key))
 

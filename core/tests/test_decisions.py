@@ -57,12 +57,16 @@ def test_undo_restores_the_original_amount(period):
     assert exc(period, E03_KEY).status == "open"
 
 
-@pytest.mark.parametrize("key", [E07_KEY, "LATE_ARRIVAL|E02|2026-09-14|A"])
-def test_attendance_items_need_no_decision(period, key):
+@pytest.mark.parametrize("key, action, value, message", [
+    ("LATE_ARRIVAL|E02|2026-09-14|A", "approve", None, "follow up with the employee"),
+    ("LATE_ARRIVAL|E02|2026-09-14|A", "approve_with_value", {"leave": "paid"}, "follow up with the employee"),
+    (E07_KEY, "approve", None, "follow up with the employee"),  # only "record as leave" is offered
+    (E07_KEY, "approve_with_value", {"leave": "sick"}, "Choose paid or unpaid leave"),
+])
+def test_attendance_items_need_no_decision(period, key, action, value, message):
     assert exc(period, key).severity == "attendance"
-    for action, value in (("approve", None), ("approve_with_value", {"leave_type": "sick"})):
-        with pytest.raises(services.DecisionError, match="follow up with the employee"):
-            services.decide(period, key, action, value)
+    with pytest.raises(services.DecisionError, match=message):
+        services.decide(period, key, action, value)
     assert not ReviewDecision.objects.exists()
     assert line(period, "E07").absence_deductions == D("220.00")  # the day's pay is still deducted
 

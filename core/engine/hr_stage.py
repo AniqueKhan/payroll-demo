@@ -483,31 +483,32 @@ class _EmployeeRun:
         self.flag("ABSENCE_UNINFORMED", message, loc=loc, on=sched.date)
 
     def reclassified_absence(self, sched: ScheduledShift, leave: Optional[LeaveRecord], override) -> None:
-        """A reviewer turned an uninformed absence into informed leave of a configured type."""
+        """A reviewer recorded an absence without notice as paid or unpaid leave. No absence penalty applies."""
         loc = sched.location_code
-        paid = self.rules.leave_types.get(override.leave_type, False)
-        kind = f"{override.leave_type} leave ({'paid' if paid else 'unpaid'} per rules)"
-        self.line.adjustment("absence reclassified", f"{sched.date}: uninformed absence treated as {kind}; "
-                             f"no uninformed penalty", override.note, date=sched.date)
-        if self.hourly and paid:
+        kind = "paid leave" if override.paid else "unpaid leave"
+        if self.hourly and override.paid:
             rate = self.rate(loc) or ZERO
             pay = money(sched.hours * rate)
             self.line.regular_pay += pay
             bump(self.line, loc, "regular_pay", pay)
-            self.line.step(f"Paid leave {sched.date}", f"{override.leave_type}: {fmt_hours(sched.hours)} h "
-                           f"scheduled x {fmt_money(rate)} = {fmt_money(pay)}", pay, date=sched.date)
-            outcome = f"paid {fmt_money(pay)} leave"
-        elif not self.hourly and not paid:
+            self.line.step(f"Paid leave {sched.date}", f"{fmt_hours(sched.hours)} h scheduled x {fmt_money(rate)} "
+                           f"= {fmt_money(pay)}", pay, date=sched.date)
+            outcome = f"{fmt_hours(sched.hours)} h scheduled paid ({fmt_money(pay)})"
+        elif not self.hourly and not override.paid:
             self.deduct_absence(self.daily_rate, f"Unpaid leave {sched.date}",
                                 f"1 day x {fmt_money(self.daily_rate)}", sched.date)
-            outcome = f"deducted {fmt_money(self.daily_rate)}"
+            outcome = f"one day's pay deducted ({fmt_money(self.daily_rate)})"
+        elif self.hourly:
+            outcome = "no hours were worked, so nothing is paid for the day"
         else:
-            outcome = "no pay change"
-        detail = "no leave record" if leave is None else f"leave '{leave.leave_type}' recorded without notice"
+            outcome = "salary paid in full, no deduction for the day"
+        self.line.adjustment("recorded as leave", f"{sched.date}: absence without notice recorded as {kind}; "
+                             f"{outcome}", override.note, date=sched.date)
+        detail = "no leave record" if leave is None else f"{leave.leave_type} leave recorded afterwards"
         self.flag("ABSENCE_UNINFORMED", f"{self.who}: absent {day_label(sched.date)} with no notice and {detail}.",
                   loc=loc, on=sched.date)
-        self.resolve("ABSENCE_UNINFORMED", sched.date, loc, f"Reviewer reclassified as {kind}, {outcome}"
-                     + (f": {override.note}" if override.note else ""))
+        self.resolve("ABSENCE_UNINFORMED", sched.date, loc, f"Recorded as {kind} by a reviewer: {outcome}"
+                     + (f". Note: {override.note}" if override.note else ""))
 
     def weekly_hours(self) -> None:
         line, rules = self.line, self.rules

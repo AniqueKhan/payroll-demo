@@ -123,3 +123,64 @@ def test_attendance_items_never_block_finalizing(period):
     run = services.current_run(period)
     assert run.exceptions.filter(severity="attendance").count() == 2
     assert services.finalize(period).status == "finalized"
+
+
+# ------------------------------------------------------------------ optional "Record as leave" on absences
+
+E07_KEY = "ABSENCE_UNINFORMED|E07|2026-09-17|B"
+
+
+def e07(period, sandbox=None):
+    return services.current_run(period, sandbox).lines.get(employee__employee_id="E07")
+
+
+@pytest.mark.parametrize("leave, deduction", [("paid", D("0.00")), ("unpaid", D("220.00"))])
+def test_record_absence_as_leave(period, leave, deduction):
+    before = e07(period)
+    services.decide(period, E07_KEY, "approve_with_value", {"leave": leave}, "called the store")
+    after = e07(period)
+    assert after.absence_deductions == deduction
+    assert after.gross - before.gross == D("220.00") - deduction
+    step = only([s for s in after.trail if s["label"] == "Reviewer adjustment: recorded as leave"])
+    assert step["formula"].startswith(f"2026-09-17: absence without notice recorded as {leave} leave")
+    assert step["formula"].endswith("(note: called the store)")
+    record = services.current_run(period).exceptions.get(exception_key=E07_KEY)
+    assert (record.severity, record.status, record.adjusted) == ("attendance", "approved", True)
+    assert record.resolution.startswith(f"Recorded as {leave} leave by a reviewer")
+    # The decision survives re-runs, and undo puts the deduction back.
+    services.run_payroll(period)
+    assert e07(period).absence_deductions == deduction
+    services.undo_decision(period, E07_KEY)
+    assert e07(period).absence_deductions == D("220.00")
+
+
+def test_record_as_leave_is_never_required_to_finalize(period):
+    services.decide(period, E07_KEY, "approve_with_value", {"leave": "paid"})
+    with pytest.raises(services.FinalizeRefused):
+        services.finalize(period)  # the 6 needs_review items are still open; the leave choice doesn't count
+    for key in services.current_run(period).exceptions.filter(severity="needs_review") \
+            .values_list("exception_key", flat=True):
+        services.decide(period, key, "approve")
+    assert services.finalize(period).status == "finalized"
+
+
+def test_record_as_leave_on_screen_is_per_visitor(client, period):
+    from django.test import Client
+
+    queue = client.get(reverse("core:exceptions")).content.decode()
+    form = queue.split('id="exc-ABSENCE_UNINFORMED-E07-2026-09-17-B"')[1].split("</article>")[0]
+    assert "Record as leave" in form and 'name="leave"' in form and "never blocks finalizing" in form
+    late = queue.split('id="exc-LATE_ARRIVAL-E02-2026-09-14-A"')[1].split("</article>")[0]
+    assert "<form" not in late
+
+    r = client.post(reverse("core:decide"), {"exception_key": E07_KEY, "action": "approve_with_value",
+                                             "leave": "paid"}, follow=True)
+    html = r.content.decode()
+    assert "Recorded as paid leave: Absence without notice. 6 items still need review." in html
+    assert "Recorded as paid leave</strong>" in html and "Undo" in html
+    employee = client.get(reverse("core:employee", kwargs={"employee_id": "E07"})).content.decode()
+    assert "absence without notice recorded as paid leave" in employee
+    # Another visitor and the baseline still see the deduction.
+    other = Client(HTTP_HOST="localhost")
+    assert "Record as leave" in other.get(reverse("core:exceptions")).content.decode()
+    assert e07(period).absence_deductions == D("220.00")

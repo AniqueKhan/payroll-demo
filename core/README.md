@@ -90,6 +90,7 @@ The demo story:
 - **Every re-run applies them.** Each re-run loads the period's decisions. Decisions approved with a value become engine `Adjustments`: hours, pay store, leave type, or loan amount. Exceptions that have a decision are then marked approved.
 - **The original exception stays visible.** When an adjustment applies, the engine still raises the exception, marked as resolved with the reviewer's resolution text. The trail gets a "Reviewer adjustment: ..." step.
 - **What can't be decided.** Blocking exceptions can't be approved; fix the input and re-run. Info exceptions and attendance items need no decision.
+- **Record as leave (optional).** An absence without notice offers one optional action: record it as paid or unpaid leave. Paid leave removes the day's deduction for salaried staff (hourly staff are paid the scheduled hours); unpaid leave keeps it. No absence penalty applies either way. The trail gets a "Reviewer adjustment: recorded as leave" step. It is stored like any other decision (per period and per visitor sandbox, applied on every re-run, undoable), and finalizing never requires it.
 
 ## Severities
 

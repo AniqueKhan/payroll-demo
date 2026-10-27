@@ -330,8 +330,8 @@ class ReviewDecision(models.Model):
             what = f"{value['hours']} h"
         elif "location" in value:
             what = f"Store {value['location']}"
-        elif "leave_type" in value:
-            what = f"{value['leave_type']} leave"
+        elif "leave" in value:
+            return f"recorded as {value['leave']} leave"
         elif "amount" in value:
             what = labels.money(value["amount"])
         else:

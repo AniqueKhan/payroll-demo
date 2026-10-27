@@ -223,9 +223,10 @@ class LocationOverride:
 
 @dataclass(frozen=True)
 class LeaveOverride:
+    """A reviewer recorded an absence without notice as paid or unpaid leave."""
     employee_id: str
     date: date
-    leave_type: str
+    paid: bool
     note: str = ""
 
 

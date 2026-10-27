@@ -46,16 +46,18 @@ def test_location_override_moves_pay_and_cost(inputs, rules, result):
     assert line.by_location["A"]["regular_pay"] == D("136.00")
 
 
-def test_leave_override_reclassifies_uninformed_absence(inputs, rules):
-    # The engine still supports the override (the screens no longer offer it for attendance items).
+@pytest.mark.parametrize("paid, deduction", [(True, D("0.00")), (False, D("220.00"))])
+def test_leave_override_records_uninformed_absence_as_leave(inputs, rules, paid, deduction):
+    # With penalties on, recording the absence as leave also drops the $25.00 absence penalty.
     rules = rules.with_changes(attendance_penalties_enabled=True)
-    adj = Adjustments(leave_overrides=[LeaveOverride("E07", date(2026, 9, 17), "sick", "called in")])
+    adj = Adjustments(leave_overrides=[LeaveOverride("E07", date(2026, 9, 17), paid, "called in")])
     res = run_payroll(inputs, rules, adj)
     before, after = run_payroll(inputs, rules).line_for("E07"), res.line_for("E07")
     assert (before.absence_deductions, before.penalties) == (D("220.00"), D("25.00"))
-    assert (after.absence_deductions, after.penalties) == (D("0.00"), D("0.00"))
+    assert (after.absence_deductions, after.penalties) == (deduction, D("0.00"))
     ex = only(res.exceptions_for("ABSENCE_UNINFORMED", "E07"))
-    assert ex.adjusted and "sick leave" in ex.resolution
+    assert ex.adjusted and ex.severity == "attendance"
+    assert ex.resolution.startswith(f"Recorded as {'paid' if paid else 'unpaid'} leave by a reviewer")
 
 
 def test_loan_override_sets_the_deduction(inputs, rules):

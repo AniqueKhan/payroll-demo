@@ -45,7 +45,10 @@ DECISION_VALUES: dict[str, Optional[str]] = {
     "WRONG_LOCATION": "location",
     "LOAN_CAPPED": "amount",
     "EXIT_FINAL_SETTLEMENT": None,
+    # Attendance: optional, never required for finalizing. Only "approve with value" applies.
+    "ABSENCE_UNINFORMED": "leave",
 }
+LEAVE_CHOICES = ("paid", "unpaid")
 
 
 def value_kind(record: "m.PayrollExceptionRecord") -> Optional[str]:
@@ -222,6 +225,8 @@ def decisions_to_adjustments(period: m.PayPeriod, sandbox: Optional[m.DemoSandbo
             adj.hours_overrides.append(t.HoursOverride(emp, on, loc, Decimal(value["hours"]), d.note))
         elif kind == "location" and on:
             adj.location_overrides.append(t.LocationOverride(emp, on, value["location"], d.note))
+        elif kind == "leave" and on:
+            adj.leave_overrides.append(t.LeaveOverride(emp, on, value["leave"] == "paid", d.note))
         elif kind == "amount":
             adj.loan_overrides.append(t.LoanOverride(emp, value["loan_kind"], Decimal(value["amount"]), d.note))
     return adj
@@ -323,6 +328,11 @@ def _clean_value(record: m.PayrollExceptionRecord, kind: str, value: dict) -> di
         if loc not in (record.employee.rates or {}):
             raise DecisionError(f"{record.employee.name} has no pay rate at store '{loc}'")
         return {"location": loc}
+    if kind == "leave":
+        leave = str(value.get("leave", ""))
+        if leave not in LEAVE_CHOICES:
+            raise DecisionError("Choose paid or unpaid leave")
+        return {"leave": leave}
     if kind == "amount":
         try:
             amount = Decimal(str(value.get("amount", ""))).quantize(Decimal("0.01"))
@@ -347,8 +357,8 @@ def decide(period: m.PayPeriod, exception_key: str, action: str, value: Optional
         raise DecisionError("That exception is not in the current run")
     if record.severity == BLOCKING:
         raise DecisionError("Blocking exceptions cannot be approved: fix the input and re-run")
-    if record.severity == ATTENDANCE:
-        raise DecisionError("Attendance items don't change pay and need no decision: follow up with the employee")
+    if record.severity == ATTENDANCE and (action != m.ReviewDecision.APPROVE_WITH_VALUE or value_kind(record) is None):
+        raise DecisionError("Attendance items need no decision: follow up with the employee")
     if record.severity == INFO:
         raise DecisionError("Handled by a rule: no decision needed")
     if action == m.ReviewDecision.APPROVE:
