@@ -149,6 +149,8 @@ class RawImportRow(models.Model):
     row_number = models.PositiveIntegerField()  # line number in the file (header is 1)
     raw = models.JSONField()  # {column: value as exported}
     parse_error = models.TextField(blank=True, default="")
+    # Why each unreadable value couldn't be read: [{column, value, reasons, marks, suggestion, expected}]
+    diagnosis = models.JSONField(default=list, blank=True)
     # False for rows that belong to another pay period (exports spill a day past both edges).
     in_period = models.BooleanField(default=True)
 

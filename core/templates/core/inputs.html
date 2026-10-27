@@ -51,9 +51,10 @@
         {% for r in s.rows %}
           <tr id="row-{{ s.location.code }}-{{ r.number }}" class="{% if r.error %}row-malformed {% endif %}{% if r.severity %}row-{{ r.severity }}{% endif %}">
             <td class="num muted">{{ r.number }}</td>
-            {% for v in r.values %}<td>{% if v %}{{ v }}{% else %}<span class="muted">(empty)</span>{% endif %}</td>{% endfor %}
+            {% for c in r.cells %}<td>{% if c.diagnosis %}<code class="mono bad-value" title="Can't be read">{{ c.value|mark_chars:c.diagnosis.marks }}</code>{% elif c.value %}{{ c.value }}{% else %}<span class="muted">(empty)</span>{% endif %}</td>{% endfor %}
             <td>
               {% if r.error %}<span class="tag tag-red">malformed row</span>{% endif %}
+              {% for d in r.diagnosis %}{% include "core/_diagnosis.html" %}{% endfor %}
               {% for ref in r.refs %}
                 <a class="ref" href="{% url 'core:exceptions' %}#{{ ref.anchor }}"><span class="pill pill-{{ ref.record.severity }}{% if ref.record.status == 'approved' %} pill-approved{% endif %}">{{ ref.record.severity|severity_label }}</span> {{ ref.title }}</a>
               {% endfor %}

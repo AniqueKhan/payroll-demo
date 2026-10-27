@@ -12,6 +12,7 @@
     {% if x.date %} · {{ x.date|date:"D M j" }}{% endif %}
   </p>
   <p class="exc-msg">{{ x.message }}</p>
+  {% for d in x.context.diagnosis %}{% include "core/_diagnosis.html" %}{% endfor %}
   {% if x.resolution %}<p class="exc-res"><span class="muted">Resolution:</span> {{ x.resolution }}</p>{% endif %}
 
   {% if item.rows %}

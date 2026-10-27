@@ -128,6 +128,12 @@ tr.row-blocking td { background: var(--red-soft); }
 tr.row-needs_review td { background: var(--amber-soft); }
 tr.row-info td { background: #f6f8fa; }
 tr.row-malformed td:first-child { box-shadow: inset 4px 0 0 var(--red); }
+.bad-value { background: var(--red-soft); padding: 1px 5px; border-radius: 4px; white-space: pre; }
+.bad-value mark { background: var(--red); color: #fff; border-radius: 2px; padding: 0 1px; }
+.diagnosis { margin: 8px 0; padding: 8px 10px; border-left: 3px solid var(--red); background: #fff; }
+.diagnosis p { margin: 2px 0; }
+.diagnosis-reasons { margin: 4px 0 4px 18px; padding: 0; }
+.diagnosis-suggestion code { background: var(--green-soft); padding: 1px 5px; border-radius: 4px; }
 tr.row-target td { outline: 2px solid var(--accent); outline-offset: -2px; }
 .filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; margin-bottom: 12px; }
 .filters label { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; font-weight: 500; color: var(--muted); }

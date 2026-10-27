@@ -1,10 +1,11 @@
 """Store A: ``EmpID,Date,Time,Type`` with explicit IN/OUT rows and ISO dates."""
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import date, datetime
 
 from ..types import Punch
-from .base import Importer, RowError
+from .base import Importer, RowError, check_values
+from .diagnose import diagnose_date_iso, diagnose_time24, parse_date_iso, parse_time24
 
 
 class StoreAImporter(Importer):
@@ -22,9 +23,7 @@ class StoreAImporter(Importer):
         kind = row["Type"].lower()
         if kind not in ("in", "out"):
             raise RowError(f"unknown punch type '{row['Type']}'")
-        try:
-            day = date.fromisoformat(row["Date"])
-            at = time.fromisoformat(row["Time"])
-        except ValueError:
-            raise RowError(f"bad date/time '{row['Date']} {row['Time']}'")
-        return [Punch(employee_id, self.location_code, datetime.combine(day, at), kind, source_row)]
+        check_values([("Date", row["Date"], parse_date_iso, diagnose_date_iso),
+                      ("Time", row["Time"], parse_time24, diagnose_time24)])
+        at = datetime.combine(parse_date_iso(row["Date"]), parse_time24(row["Time"]))
+        return [Punch(employee_id, self.location_code, at, kind, source_row)]

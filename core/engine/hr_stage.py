@@ -336,13 +336,13 @@ class _EmployeeRun:
             adjusted = "adjusted" in s.flags
             if "malformed_row" in s.flags:
                 bad_rows = self.bad_rows[(s.location_code, s.date)]
-                bad = "; ".join(x.message for x in bad_rows)
+                bad = " ".join(x.message for x in bad_rows)
                 raw = ", ".join(f"{p.timestamp:%H:%M} {(p.kind or 'punch').upper()} (row {p.source_row})"
                                 for p in s.raw_punches) or "none"
-                self.flag("MALFORMED_ROW", f"{bad}. The remaining punches cannot be paired: counted "
+                self.flag("MALFORMED_ROW", f"{bad} The remaining punches cannot be paired: counted "
                           f"as 0.00 h. Remaining punches: {raw}. {hint}", loc=s.location_code, on=s.date,
                           severity=exc.NEEDS_REVIEW, rows=rows + [r for b in bad_rows for r in b.rows],
-                          context=suggest)
+                          context={**suggest, **diagnosis_of(bad_rows)})
                 if not adjusted:
                     self.line.step(f"{s.date} {store(s.location_code)}", f"unreadable punch row; remaining "
                                    f"punches {raw}: 0.00 h pending review", None, date=s.date, step="shift")
@@ -642,6 +642,12 @@ def compute_premium(week: WeekHours, line: PayrollLine, rules: Rules, label: str
 UNRESOLVED = {"missed_clock_out", "missed_clock_in", "odd_punches"}
 
 
+def diagnosis_of(bad_rows: Iterable[PayrollException]) -> dict:
+    """The importers' explanation of each unreadable value, kept for the screens."""
+    found = [d for b in bad_rows for d in (b.context or {}).get("diagnosis", [])]
+    return {"diagnosis": found} if found else {}
+
+
 def settle_bad_rows(
     bad_rows: Iterable[PayrollException], shifts: list[Shift], period: Period,
 ) -> tuple[list[Shift], dict[str, dict[tuple[str, date], list[PayrollException]]], list[PayrollException]]:
@@ -656,9 +662,10 @@ def settle_bad_rows(
     found: list[PayrollException] = []
     for bad in bad_rows:
         if bad.date is None:
-            found.append(exc.make("MALFORMED_ROW", f"{bad.message}. Work date unreadable, so the affected day "
+            found.append(exc.make("MALFORMED_ROW", f"{bad.message} Work date unreadable, so the affected day "
                                   f"is unknown: check this employee's punches", employee_id=bad.employee_id,
-                                  location_code=bad.location_code, severity=exc.NEEDS_REVIEW, rows=bad.rows))
+                                  location_code=bad.location_code, severity=exc.NEEDS_REVIEW, rows=bad.rows,
+                                  context=diagnosis_of([bad]) or None))
         elif not period.start <= bad.date <= period.end:
             continue  # belongs to another pay period: skipped quietly
         else:
@@ -682,11 +689,11 @@ def settle_bad_rows(
                 kept.extend(day_shifts)
                 found.append(exc.make(
                     "MALFORMED_ROW",
-                    f"{'; '.join(b.message for b in bads)}. Paid {fmt_hours(hours)} h from the remaining punches; "
+                    f"{' '.join(b.message for b in bads)} Paid {fmt_hours(hours)} h from the remaining punches; "
                     f"confirm the unreadable punch was not a real break or extra shift.",
                     employee_id=emp_id, location_code=loc, on=day, severity=exc.NEEDS_REVIEW,
                     rows=[r for b in bads for r in b.rows] + rows_of(p for s in day_shifts for p in s.raw_punches),
-                    context={"suggested_hours": fmt_hours(hours)},
+                    context={"suggested_hours": fmt_hours(hours), **diagnosis_of(bads)},
                 ))
                 del days[(loc, day)]
                 continue

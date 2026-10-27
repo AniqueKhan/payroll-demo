@@ -129,9 +129,11 @@ def store_raw_rows(location: m.Location, period: m.PayPeriod, path: Path, employ
     importer = get_importer(location.export_format)(location.code, employees)
     _, found = importer.parse(path)
     errors: dict[int, list[str]] = {}
+    diagnoses: dict[int, list[dict]] = {}
     for x in found:
         for _, row in x.rows:
             errors.setdefault(row, []).append(x.message)
+            diagnoses.setdefault(row, []).extend((x.context or {}).get("diagnosis", []))
     with open(path, encoding="utf-8-sig", newline="") as fh:
         rows = [r for r in csv.reader(fh) if r]  # blank lines are skipped, like the importers do
     header, body = (rows[0], rows[1:]) if rows else ([], [])
@@ -141,7 +143,7 @@ def store_raw_rows(location: m.Location, period: m.PayPeriod, path: Path, employ
         columns=header, unknown_columns=[c for c in header if c not in importer.supported_columns])
     m.RawImportRow.objects.bulk_create(
         m.RawImportRow(batch=batch, row_number=n, raw=dict(zip(header, values)),
-                       parse_error="; ".join(errors.get(n, [])))
+                       parse_error=" ".join(errors.get(n, [])), diagnosis=diagnoses.get(n, []))
         for n, values in enumerate(body, start=2))
     return batch
 

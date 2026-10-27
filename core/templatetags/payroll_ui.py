@@ -2,6 +2,8 @@
 from decimal import Decimal, InvalidOperation
 
 from django import template
+from django.utils.html import escape
+from django.utils.safestring import mark_safe
 
 from core import labels
 from core.engine.explain import fmt_money
@@ -47,3 +49,18 @@ def get(mapping, key):
         return mapping.get(key)
     except AttributeError:
         return None
+
+
+@register.filter
+def mark_chars(value, positions):
+    """Wrap the characters at ``positions`` in <mark>, everything escaped: '9:6O' -> '9:<mark>6O</mark>'."""
+    marks = set(positions or [])
+    out, open_ = [], False
+    for i, c in enumerate(str(value)):
+        if (i in marks) != open_:
+            out.append("<mark>" if not open_ else "</mark>")
+            open_ = not open_
+        out.append(escape(c))
+    if open_:
+        out.append("</mark>")
+    return mark_safe("".join(out))

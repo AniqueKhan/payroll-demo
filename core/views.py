@@ -155,9 +155,11 @@ def inputs(request, run):
             skipped = batch.raw_rows.filter(in_period=False).count()
             for r in batch.raw_rows.filter(in_period=True):
                 refs = sorted(referenced.get((loc.code, r.row_number), []), key=lambda x: SEVERITY_RANK[x.severity])
+                bad = {d["column"]: d for d in r.diagnosis}
                 rows.append({
                     "number": r.row_number,
-                    "values": [r.raw.get(c, "") for c in batch.columns],
+                    "cells": [{"value": r.raw.get(c, ""), "diagnosis": bad.get(c)} for c in batch.columns],
+                    "diagnosis": r.diagnosis,
                     "error": r.parse_error,
                     "refs": [{"title": code_title(x.code), "anchor": anchor(x.exception_key), "record": x}
                              for x in refs],
