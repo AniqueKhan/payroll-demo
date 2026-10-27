@@ -14,6 +14,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
+from . import labels
 from . import models as m
 from . import services
 from .engine.config import DEFAULT_RULES_PATH, load_rules
@@ -54,9 +55,7 @@ def base_context(run: m.PayrollRun, active: str) -> dict:
 
 def period_label(period: m.PayPeriod) -> str:
     """'Sep 7 to 20', or 'Sep 28 to Oct 11' when the period spans two months."""
-    start, end = period.start_date, period.end_date
-    tail = f"{end.day}" if (start.year, start.month) == (end.year, end.month) else f"{end:%b} {end.day}"
-    return f"{start:%b} {start.day} to {tail}"
+    return labels.period_label(period.start_date, period.end_date)
 
 
 def raw_row_index(period: m.PayPeriod) -> dict[tuple[str, int], m.RawImportRow]:
