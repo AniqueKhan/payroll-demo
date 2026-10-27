@@ -303,7 +303,8 @@ def apply_scenarios(plan: Plan, shifts: list[dict]) -> tuple[list[dict], dict]:
     record(6, "E04", d(4), "A", code="OVERNIGHT_SHIFT", hours="8.00")
     # 7: late beyond grace, and late within grace
     find("E02", d(7))["in"] = at(7, "09:30")
-    record(7, "E02", d(7), "A", code="LATE_ARRIVAL", minutes_late=30, penalty="5.00")
+    record(7, "E02", d(7), "A", code="LATE_ARRIVAL", severity="attendance", minutes_late=30, penalty="0.00",
+           penalty_when_enabled="5.00")
     find("E05", d(8))["in"] = at(8, "09:06")
     record(7, "E05", d(8), "A", code=None, minutes_late=6, penalty="0.00", note="within grace")
     # 8: salaried half day
@@ -311,8 +312,8 @@ def apply_scenarios(plan: Plan, shifts: list[dict]) -> tuple[list[dict], dict]:
     record(8, "E01", d(2), "A", code="HALF_DAY", deduction="100.00")
     # 9: absences: uninformed (salaried), informed paid (hourly), informed unpaid (hourly)
     remove("E07", d(10))
-    record(9, "E07", d(10), "B", code="ABSENCE_UNINFORMED", severity="needs_review", deduction="220.00",
-           penalty="25.00")
+    record(9, "E07", d(10), "B", code="ABSENCE_UNINFORMED", severity="attendance", deduction="220.00",
+           penalty="0.00", penalty_when_enabled="25.00")
     remove("E09", d(7))
     record(9, "E09", d(7), "B", code="ABSENCE_INFORMED", severity="info", leave_type="sick", leave_pay="124.00")
     remove("E17", d(9))

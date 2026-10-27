@@ -92,6 +92,13 @@ main { padding-bottom: 40px; }
 .pill-blocking { background: var(--red-soft); color: var(--red); border-color: #f1a9a0; }
 .pill-needs_review, .pill-open { background: var(--amber-soft); color: var(--amber); border-color: var(--amber-line); }
 .pill-approved, .pill-needs_review.pill-approved { background: var(--green-soft); color: var(--green); border-color: #9fd3b0; }
+.pill-attendance { background: #f1ecfb; color: #5b3e96; border-color: #d6c9f0; }
+tr.row-attendance td { background: #f7f3fd; }
+.exc-attendance { border-left-color: #8a6bc8; }
+.occurrence { display: inline-block; margin-left: 6px; font-size: .8rem; color: #5b3e96; }
+.attendance-link { margin: -6px 0 20px; }
+.attendance-link a { text-decoration: none; font-weight: 500; }
+.tax-note { color: var(--muted); margin: 0 0 20px; }
 .pill-info { background: var(--grey-soft); color: var(--grey); border-color: var(--line); }
 .badge { display: inline-block; min-width: 1.5em; padding: 0 6px; border-radius: 999px; font-size: .75rem; font-weight: 600; text-align: center; margin-left: 4px; }
 .badge-amber { background: #d99a00; color: #fff; }

@@ -48,7 +48,7 @@ def test_01_unknown_column_is_a_file_note_not_an_exception(result, scenario):
     assert (note.code, note.location_code, note.message) == ("UNKNOWN_COLUMN", s["location"], DEPT_NOTE)
     assert note.context == {"columns": ["Badge"]}
     assert not result.exceptions_for("UNKNOWN_COLUMN")
-    assert result.totals["exceptions_by_severity"] == {"needs_review": 7, "info": 15}
+    assert result.totals["exceptions_by_severity"] == {"needs_review": 6, "info": 14, "attendance": 2}
 
 
 def test_01_several_extra_columns_make_one_note(inputs):
@@ -212,11 +212,12 @@ def test_06_overnight_shift_is_one_shift_on_start_date(result, scenario):
 
 # 7 -------------------------------------------------------------------------------------------
 
-def test_07_late_beyond_grace_is_penalized(result, scenario):
+def test_07_late_beyond_grace_is_an_attendance_item(result, scenario):
     s = scenario(7, code="LATE_ARRIVAL")
     ex = only(result.exceptions_for("LATE_ARRIVAL", s["employee"]))
-    assert (ex.severity, ex.date) == ("info", s["date"])
-    assert f"{s['minutes_late']} min late" in ex.message
+    assert (ex.severity, ex.date) == (s["severity"], s["date"])
+    assert f"{s['minutes_late']} minutes after" in ex.message
+    assert ex.context["occurrence_label"] == "1st late arrival this period"
     assert result.line_for(s["employee"]).penalties == D(s["penalty"])
 
 

@@ -35,7 +35,7 @@ ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
 Then run `python manage.py runserver` and open http://127.0.0.1:8000/.
 
 The demo story:
-1. **Overview** shows that 7 items need review.
+1. **Overview** shows that 6 items need review, and 2 attendance items to discuss.
 2. **Inputs** shows each store's raw export. Flagged rows link to their exception.
 3. **Exceptions** is where you resolve each item. Approve it as is, or approve it with a value: hours, a store, a leave type, or a loan amount.
 4. Totals update after every decision.
@@ -71,7 +71,8 @@ The demo story:
 - **Hourly pay.** Straight time is paid at each store's own rate. Overtime is worked out per workweek, with hours added up across all stores. The premium is `(multiplier - 1) x weighted average regular rate x OT hours`. The weighted rate keeps full `Decimal` precision. Only the premium is rounded, half up to cents. The trail shows the rate to cents for display, and spells the premium out as `(earnings / hours)` so it can be checked by hand. Each week's premium is split across stores in proportion to the hours worked there.
 - **Salaried pay.** Salaried staff are exempt from overtime. Daily rate = `salary_per_period / standard working days in the period`. New hires and leavers are prorated by the days they were scheduled to work while employed.
 - **Gross pay** = regular + overtime + add-ons - absence deductions.
-- **Net pay** = gross - penalties - loans - custom deductions.
+- **Net before taxes** = gross - penalties - loans - custom deductions. Every screen, the trail and `run_payroll` use this label. The engine calculates no taxes: federal, state and payroll tax withholding is left to the payroll provider (for example ADP, Gusto or Paychex), which takes these checked numbers as its input.
+- **Attendance penalties.** `attendance_penalties_enabled` in the rules file is `false` by default, so a late arrival or an absence without notice costs no penalty. The amounts (`late.penalty_per_late`, `absence.uninformed_penalty`) stay in the rules file; set the switch to `true` to apply them again exactly as before.
 - **Loan cap.** The cap is a percentage of net pay before loans. For a leaver, the engine deducts the remaining balance up to that cap. Anything still owed is flagged as a final settlement.
 - **Unreadable rows.** A bad row for a known employee, dated inside the period, is raised as `needs_review`. If the employee's remaining punches for that day at that store pair cleanly, the day is paid from them and the reviewer confirms the lost punch wasn't a real break or extra shift. If they can't be paired, the day is counted as 0 h, with the remaining punches attached and the scheduled hours suggested. A row whose date can't be read is also `needs_review`.
 - **Pay period boundaries.** A shift belongs to the day it started (its clock-in date). The importers read one day either side of the period, so shifts pair across both edges. Then only shifts that clock in inside the period are kept:
@@ -88,10 +89,11 @@ The demo story:
 - **Where decisions live.** A decision (`ReviewDecision`) belongs to the pay period, not the run. It is matched to its exception by a stable key: `code|employee_id|date|location_code`.
 - **Every re-run applies them.** Each re-run loads the period's decisions. Decisions approved with a value become engine `Adjustments`: hours, pay store, leave type, or loan amount. Exceptions that have a decision are then marked approved.
 - **The original exception stays visible.** When an adjustment applies, the engine still raises the exception, marked as resolved with the reviewer's resolution text. The trail gets a "Reviewer adjustment: ..." step.
-- **What can't be decided.** Blocking exceptions can't be approved; fix the input and re-run. Info exceptions need no decision.
+- **What can't be decided.** Blocking exceptions can't be approved; fix the input and re-run. Info exceptions and attendance items need no decision.
 
 ## Severities
 
 - `info`: a rule settled it. (File notes, such as an extra column, are not exceptions and don't appear in these counts.)
 - `needs_review`: a person must decide it (approve as is, or approve with a value) before finalizing.
 - `blocking`: the run cannot be finalized until the inputs are fixed and payroll is re-run.
+- `attendance` (shown as "Attendance to discuss"): late arrivals and absences without notice. They never block finalizing and aren't counted with needs review or info; the Overview gives their own count and the Exceptions screen lists them in their own section below the pay items. Each one carries a running count for the employee, such as "2nd late arrival this period". An absence without notice still deducts the day's pay for salaried staff; the item is there so someone follows up with the employee.

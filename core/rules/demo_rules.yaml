@@ -24,9 +24,13 @@ punch_pairing:
   max_shift_hours: 16             # IN/OUT further apart than this are not paired
   cluster_gap_hours: 12           # exports without IN/OUT: a gap this long starts a new work day
 
+# Attendance penalties (late arrivals, absences without notice) are off by default: the items still show
+# under "Attendance to discuss". Switch on to charge the amounts below.
+attendance_penalties_enabled: false
+
 late:
   grace_minutes: 10
-  penalty_per_late: "5.00"
+  penalty_per_late: "5.00"           # charged only when attendance_penalties_enabled is true
 
 half_day:
   threshold_fraction: "0.5"       # salaried: worked < 50% of scheduled hours -> deduct half a day
@@ -34,7 +38,7 @@ half_day:
 absence:
   # Salaried daily rate = salary_per_period / scheduled working days in the period
   standard_workdays: [mon, tue, wed, thu, fri]
-  uninformed_penalty: "25.00"
+  uninformed_penalty: "25.00"         # charged only when attendance_penalties_enabled is true
 
 leave_types:
   - {code: sick, paid: true}

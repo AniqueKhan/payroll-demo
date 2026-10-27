@@ -15,7 +15,7 @@ from .demo_data import generator
 from .engine import inputs as engine_inputs
 from .engine import types as t
 from .engine.config import DEFAULT_RULES_PATH, Rules, load_rules
-from .engine.exceptions import BLOCKING, INFO, NEEDS_REVIEW
+from .engine.exceptions import ATTENDANCE, BLOCKING, INFO, NEEDS_REVIEW
 from .engine.explain import fmt_money
 from .engine.importers import get_importer
 from .engine.run import PayrollInputs, attribute_rows, make_period
@@ -43,7 +43,6 @@ DECISION_VALUES: dict[str, Optional[str]] = {
     "ODD_PUNCH_COUNT": "hours",
     "MALFORMED_ROW": "hours",
     "WRONG_LOCATION": "location",
-    "ABSENCE_UNINFORMED": "leave_type",
     "LOAN_CAPPED": "amount",
     "EXIT_FINAL_SETTLEMENT": None,
 }
@@ -223,8 +222,6 @@ def decisions_to_adjustments(period: m.PayPeriod, sandbox: Optional[m.DemoSandbo
             adj.hours_overrides.append(t.HoursOverride(emp, on, loc, Decimal(value["hours"]), d.note))
         elif kind == "location" and on:
             adj.location_overrides.append(t.LocationOverride(emp, on, value["location"], d.note))
-        elif kind == "leave_type" and on:
-            adj.leave_overrides.append(t.LeaveOverride(emp, on, value["leave_type"], d.note))
         elif kind == "amount":
             adj.loan_overrides.append(t.LoanOverride(emp, value["loan_kind"], Decimal(value["amount"]), d.note))
     return adj
@@ -326,11 +323,6 @@ def _clean_value(record: m.PayrollExceptionRecord, kind: str, value: dict) -> di
         if loc not in (record.employee.rates or {}):
             raise DecisionError(f"{record.employee.name} has no pay rate at store '{loc}'")
         return {"location": loc}
-    if kind == "leave_type":
-        leave_type = str(value.get("leave_type", ""))
-        if leave_type not in load_rules(DEFAULT_RULES_PATH).leave_types:
-            raise DecisionError(f"'{leave_type}' is not a leave type in the rules")
-        return {"leave_type": leave_type}
     if kind == "amount":
         try:
             amount = Decimal(str(value.get("amount", ""))).quantize(Decimal("0.01"))
@@ -355,6 +347,8 @@ def decide(period: m.PayPeriod, exception_key: str, action: str, value: Optional
         raise DecisionError("That exception is not in the current run")
     if record.severity == BLOCKING:
         raise DecisionError("Blocking exceptions cannot be approved: fix the input and re-run")
+    if record.severity == ATTENDANCE:
+        raise DecisionError("Attendance items don't change pay and need no decision: follow up with the employee")
     if record.severity == INFO:
         raise DecisionError("Handled by a rule: no decision needed")
     if action == m.ReviewDecision.APPROVE:

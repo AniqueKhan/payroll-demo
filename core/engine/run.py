@@ -21,7 +21,25 @@ from .types import (
 )
 
 FILE_NOTE_CODES = {"UNKNOWN_COLUMN"}
-SEVERITY_ORDER = {exc.BLOCKING: 0, exc.NEEDS_REVIEW: 1, exc.INFO: 2}
+SEVERITY_ORDER = {exc.BLOCKING: 0, exc.NEEDS_REVIEW: 1, exc.INFO: 2, exc.ATTENDANCE: 3}
+ATTENDANCE_NOUNS = {"LATE_ARRIVAL": "late arrival", "ABSENCE_UNINFORMED": "absence without notice",
+                    "PARTIAL_DAY": "partial day"}
+
+
+def ordinal(n: int) -> str:
+    suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def count_attendance(found: list[PayrollException]) -> None:
+    """Give each attendance item its running count for that employee and type: '2nd late arrival this period'."""
+    seen: Counter = Counter()
+    for e in sorted((e for e in found if e.severity == exc.ATTENDANCE), key=lambda e: (str(e.date), e.code)):
+        seen[(e.employee_id, e.code)] += 1
+        n = seen[(e.employee_id, e.code)]
+        noun = ATTENDANCE_NOUNS.get(e.code, e.code.replace("_", " ").lower())
+        e.context["occurrence"] = n
+        e.context["occurrence_label"] = f"{ordinal(n)} {noun} this period"
 
 
 @dataclass
@@ -106,13 +124,14 @@ def run_payroll(inputs: PayrollInputs, rules: Rules, adjustments: Optional[Adjus
     for line in lines:
         line.stage = "custom"
         line.net = line.gross - line.penalties - line.loan_deductions - line.custom_deductions
-        line.step("Net pay", f"gross {fmt_money(line.gross)} - penalties {fmt_money(line.penalties)} - loans "
+        line.step("Net before taxes", f"gross {fmt_money(line.gross)} - penalties {fmt_money(line.penalties)} - loans "
                   f"{fmt_money(line.loan_deductions)} - custom {fmt_money(line.custom_deductions)} = "
                   f"{fmt_money(line.net)}", line.net)
         if line.net < 0:
-            found.append(exc.make("NEGATIVE_NET", f"Net pay {fmt_money(line.net)} is negative",
+            found.append(exc.make("NEGATIVE_NET", f"Net before taxes {fmt_money(line.net)} is negative",
                                   employee_id=line.employee_id))
 
+    count_attendance(found)
     # The original exception stays visible, marked as settled by the reviewer's adjustment.
     for e in found:
         if e.key in applied:

@@ -1,7 +1,7 @@
 {% load payroll_ui %}{% with x=item.record %}
 <article class="exc exc-{{ x.severity }}{% if x.status != 'open' %} exc-approved{% endif %}" id="{{ item.anchor }}">
   <header class="exc-head">
-    <h3>{{ item.title }}</h3>
+    <h3>{{ item.title }}{% if x.context.occurrence_label %} <span class="occurrence">· {{ x.context.occurrence_label }}</span>{% endif %}</h3>
     <span class="pill pill-{{ x.severity }}{% if x.severity == 'needs_review' and x.status != 'open' %} pill-approved{% endif %}">
       {% if x.severity == 'needs_review' and x.status != 'open' %}Approved{% else %}{{ x.severity|severity_label }}{% endif %}
     </span>
@@ -40,10 +40,6 @@
           <label>Pay at store
             <select name="location">{% for code in item.stores %}<option value="{{ code }}" {% if code == item.default %}selected{% endif %}>Store {{ code }}{% if code == item.default %} (scheduled){% endif %}</option>{% endfor %}</select>
           </label>
-        {% elif item.value_kind == "leave_type" %}
-          <label>Reclassify as leave
-            <select name="leave_type">{% for lt in leave_types %}<option value="{{ lt }}">{{ lt }}</option>{% endfor %}</select>
-          </label>
         {% elif item.value_kind == "amount" %}
           <label>Deduction ($) <input type="number" name="amount" min="0" max="{{ x.context.installment }}" step="0.01" value="{{ item.default }}" inputmode="decimal"></label>
           <span class="muted small">Between $0.00 and the installment {{ x.context.installment|money }}</span>
@@ -56,7 +52,7 @@
         </button>
         {% if item.value_kind %}
           <button class="btn" type="submit" name="action" value="approve_with_value">
-            {% if item.value_kind == "hours" %}Approve with these hours{% elif item.value_kind == "location" %}Approve with this store{% elif item.value_kind == "leave_type" %}Reclassify as leave{% else %}Approve with this amount{% endif %}
+            {% if item.value_kind == "hours" %}Approve with these hours{% elif item.value_kind == "location" %}Approve with this store{% else %}Approve with this amount{% endif %}
           </button>
         {% endif %}
       </div>
@@ -67,7 +63,6 @@
         {% if item.decision.value %}:
           {% if item.decision.value.hours %}{{ item.decision.value.hours }} h{% endif %}
           {% if item.decision.value.location %}Store {{ item.decision.value.location }}{% endif %}
-          {% if item.decision.value.leave_type %}{{ item.decision.value.leave_type }} leave{% endif %}
           {% if item.decision.value.amount %}{{ item.decision.value.amount|money }}{% endif %}
         {% endif %}
         <span class="muted small">· {{ item.decision.decided_at|date:"M j, H:i" }}</span>

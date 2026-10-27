@@ -72,6 +72,11 @@ class Rules:
         return {WEEKDAYS.index(d[:3].lower()) for d in self.raw["absence"]["standard_workdays"]}
 
     @property
+    def attendance_penalties_enabled(self) -> bool:
+        """Late and uninformed-absence penalties are only charged when switched on (off by default)."""
+        return bool(self.raw.get("attendance_penalties_enabled", False))
+
+    @property
     def uninformed_penalty(self) -> Decimal:
         return to_decimal(self.raw["absence"]["uninformed_penalty"])
 

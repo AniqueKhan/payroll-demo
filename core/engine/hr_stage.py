@@ -67,6 +67,11 @@ def hhmm(dt) -> str:
     return dt.strftime("%H:%M") if dt else "--:--"
 
 
+def day_label(d: date) -> str:
+    """'Thu Sep 17'."""
+    return f"{d:%a %b} {d.day}"
+
+
 def rows_of(punches: Iterable[Punch]) -> list[tuple[str, int]]:
     return [(p.location_code, p.source_row) for p in punches]
 
@@ -203,6 +208,10 @@ class _EmployeeRun:
         self.daily_rate: Optional[Decimal] = None
         n_weeks = rules.period_length_days // 7
         self.weeks = [WeekHours(i + 1, period.start + timedelta(days=7 * i)) for i in range(n_weeks)]
+
+    @property
+    def who(self) -> str:
+        return f"{self.e.id} {self.e.name}"
 
     def flag(self, code, message, *, loc=None, on=None, resolution=None, severity=None, rows=None, context=None):
         self.found.append(exc.make(code, message, employee_id=self.e.id, location_code=loc, on=on,
@@ -388,14 +397,18 @@ class _EmployeeRun:
             grace = timedelta(minutes=self.rules.late_grace_minutes)
             late_by = int((first_in - sched.start).total_seconds() // 60)
             if first_in > sched.start + grace:
-                penalty = money(self.rules.late_penalty)
-                self.line.penalties += penalty
-                self.line.step("Late arrival penalty", f"{sched.date}: in {hhmm(first_in)}, scheduled "
-                               f"{hhmm(sched.start)} + {self.rules.late_grace_minutes} min grace; late "
-                               f"{late_by} min = {fmt_money(penalty)}", penalty, date=sched.date)
-                self.flag("LATE_ARRIVAL", f"Clocked in {hhmm(first_in)}, scheduled {hhmm(sched.start)} "
-                          f"({late_by} min late, grace {self.rules.late_grace_minutes} min)",
-                          loc=sched.location_code, on=sched.date, resolution=f"Penalty {fmt_money(penalty)}",
+                message = (f"{self.who}: clocked in {hhmm(first_in)} on {day_label(sched.date)}, {late_by} minutes "
+                           f"after the {hhmm(sched.start)} start (grace {self.rules.late_grace_minutes} min).")
+                resolution = "No penalty: attendance penalties are off"
+                if self.rules.attendance_penalties_enabled:
+                    penalty = money(self.rules.late_penalty)
+                    self.line.penalties += penalty
+                    self.line.step("Late arrival penalty", f"{sched.date}: in {hhmm(first_in)}, scheduled "
+                                   f"{hhmm(sched.start)} + {self.rules.late_grace_minutes} min grace; late "
+                                   f"{late_by} min = {fmt_money(penalty)}", penalty, date=sched.date)
+                    message += f" Late penalty {fmt_money(penalty)}."
+                    resolution = f"Penalty {fmt_money(penalty)}"
+                self.flag("LATE_ARRIVAL", message, loc=sched.location_code, on=sched.date, resolution=resolution,
                           rows=rows_of(first.raw_punches[:1]))
             worked = sum((s.hours for s in day), ZERO)
             if not self.hourly and worked < sched.hours * self.rules.half_day_threshold:
@@ -446,21 +459,28 @@ class _EmployeeRun:
                 self.flag("ABSENCE_INFORMED", f"Absent, leave record: {kind}", loc=loc, on=sched.date,
                           resolution=outcome)
                 return
-        # Uninformed absence (no leave record, or a leave record entered without notice).
-        parts = []
-        if leave is None and not self.hourly:
-            self.deduct_absence(self.daily_rate, f"Absence {sched.date}",
-                                f"uninformed: 1 day x {fmt_money(self.daily_rate)}", sched.date)
-            parts.append(f"deducted {fmt_money(self.daily_rate)}")
-        penalty = money(self.rules.uninformed_penalty)
-        if penalty:
-            self.line.penalties += penalty
-            self.line.step(f"Uninformed absence penalty {sched.date}", f"rules: {fmt_money(penalty)}", penalty,
-                           date=sched.date)
-            parts.append(f"penalty {fmt_money(penalty)}")
-        detail = "no leave record" if leave is None else f"leave '{leave.leave_type}' recorded without notice"
-        self.flag("ABSENCE_UNINFORMED", f"Scheduled {hhmm(sched.start)}-{hhmm(sched.end)} at {store(loc)}, no "
-                  f"punches, {detail}: {', '.join(parts) or 'no pay change'}", loc=loc, on=sched.date)
+        # Uninformed absence (no leave record, or a leave record entered without notice). The pay effect is
+        # automatic and rule-based, so this is an attendance item to discuss, not a pay decision.
+        when = day_label(sched.date)
+        if leave is None:
+            message = f"{self.who}: absent {when} with no notice and no leave record."
+            if not self.hourly:
+                self.deduct_absence(self.daily_rate, f"Absence {sched.date}",
+                                    f"uninformed: 1 day x {fmt_money(self.daily_rate)}", sched.date)
+                message += f" One day's pay deducted ({fmt_money(self.daily_rate)})."
+            else:
+                message += " No hours were worked, so nothing is paid for the day."
+        else:
+            message = (f"{self.who}: absent {when} without notice; {leave.leave_type} leave was recorded "
+                       f"afterwards. {outcome}.")
+        if self.rules.attendance_penalties_enabled:
+            penalty = money(self.rules.uninformed_penalty)
+            if penalty:
+                self.line.penalties += penalty
+                self.line.step(f"Uninformed absence penalty {sched.date}", f"rules: {fmt_money(penalty)}", penalty,
+                               date=sched.date)
+                message += f" Absence penalty {fmt_money(penalty)}."
+        self.flag("ABSENCE_UNINFORMED", message, loc=loc, on=sched.date)
 
     def reclassified_absence(self, sched: ScheduledShift, leave: Optional[LeaveRecord], override) -> None:
         """A reviewer turned an uninformed absence into informed leave of a configured type."""
@@ -484,8 +504,8 @@ class _EmployeeRun:
         else:
             outcome = "no pay change"
         detail = "no leave record" if leave is None else f"leave '{leave.leave_type}' recorded without notice"
-        self.flag("ABSENCE_UNINFORMED", f"Scheduled {hhmm(sched.start)}-{hhmm(sched.end)} at {store(loc)}, no "
-                  f"punches, {detail}", loc=loc, on=sched.date)
+        self.flag("ABSENCE_UNINFORMED", f"{self.who}: absent {day_label(sched.date)} with no notice and {detail}.",
+                  loc=loc, on=sched.date)
         self.resolve("ABSENCE_UNINFORMED", sched.date, loc, f"Reviewer reclassified as {kind}, {outcome}"
                      + (f": {override.note}" if override.note else ""))
 

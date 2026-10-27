@@ -18,7 +18,7 @@
   <div class="stat"><span class="stat-label">Hours</span><span class="stat-value">{{ line.hours|hours }}</span></div>
   <div class="stat"><span class="stat-label">Gross</span><span class="stat-value num">{{ line.gross|money }}</span></div>
   <div class="stat"><span class="stat-label">Deductions</span><span class="stat-value num">{{ line.deductions|money }}</span></div>
-  <div class="stat"><span class="stat-label">Net</span><span class="stat-value num">{{ line.net|money }}</span></div>
+  <div class="stat"><span class="stat-label">Net before taxes</span><span class="stat-value num">{{ line.net|money }}</span></div>
 </section>
 
 {% if adjustment_count %}

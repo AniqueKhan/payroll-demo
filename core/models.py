@@ -223,7 +223,7 @@ class PayrollLineRecord(models.Model):
     loan_deductions = models.DecimalField(max_digits=12, decimal_places=2)
     custom_deductions = models.DecimalField(max_digits=12, decimal_places=2)
     gross = models.DecimalField(max_digits=12, decimal_places=2)
-    net = models.DecimalField(max_digits=12, decimal_places=2)
+    net = models.DecimalField("net before taxes", max_digits=12, decimal_places=2)
     hours = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     overtime_hours = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     by_location = models.JSONField(default=dict)
@@ -243,11 +243,12 @@ class PayrollLineRecord(models.Model):
 
     def __str__(self):
         return (f"{self.employee} · {self.run.period.short_label} · gross {labels.money(self.gross)} · "
-                f"net {labels.money(self.net)}")
+                f"net before taxes {labels.money(self.net)}")
 
 
 class PayrollExceptionRecord(models.Model):
-    SEVERITIES = [("info", "Info"), ("needs_review", "Needs review"), ("blocking", "Blocking")]
+    SEVERITIES = [("info", "Info"), ("needs_review", "Needs review"), ("blocking", "Blocking"),
+                  ("attendance", "Attendance to discuss")]
     OPEN, APPROVED, OVERRIDDEN = "open", "approved", "overridden"
     STATUSES = [(OPEN, "Open"), (APPROVED, "Approved"), (OVERRIDDEN, "Overridden")]
 

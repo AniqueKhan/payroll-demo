@@ -18,12 +18,11 @@ from django.views.decorators.http import require_POST
 from . import labels
 from . import models as m
 from . import services
-from .engine.config import DEFAULT_RULES_PATH, load_rules
 from .sandbox import current_run, forget_sandbox, get_sandbox
 from .templatetags.payroll_ui import code_title
 
-SEVERITY_RANK = {"blocking": 0, "needs_review": 1, "info": 2}
-STAGES = [("hr", "HR stage"), ("finance", "Finance stage"), ("custom", "Custom rules and net pay")]
+SEVERITY_RANK = {"blocking": 0, "needs_review": 1, "attendance": 2, "info": 3}
+STAGES = [("hr", "HR stage"), ("finance", "Finance stage"), ("custom", "Custom rules and net before taxes")]
 
 
 def anchor(key: str) -> str:
@@ -50,6 +49,7 @@ def base_context(run: m.PayrollRun, active: str) -> dict:
         "in_sandbox": run.sandbox_id is not None,
         "open_count": run.exceptions.filter(severity="needs_review", status="open").count(),
         "blocking_count": run.exceptions.filter(severity="blocking").count(),
+        "attendance_count": run.exceptions.filter(severity="attendance").count(),
         "is_final": run.status == m.PayrollRun.FINALIZED,
     }
 
@@ -125,7 +125,7 @@ def overview(request, run):
         "stores": [{"code": code, "name": names.get(code, ""), "hours": slot["hours"], "gross": slot["gross"]}
                    for code, slot in sorted(totals["by_location"].items())],
         "severity_counts": [("blocking", severities["blocking"]), ("needs_review", severities["needs_review"]),
-                            ("info", severities["info"])],
+                            ("info", severities["info"]), ("attendance", severities["attendance"])],
         "approved_count": run.exceptions.filter(severity="needs_review", status="approved").count(),
         "blockers": services.finalize_blockers(run),
         "decision_count": services.decisions(run.period, run.sandbox).count(),
@@ -170,7 +170,7 @@ def inputs(request, run):
     return render(request, "core/inputs.html", ctx)
 
 
-def present_exception(x: m.PayrollExceptionRecord, decisions: dict, raw_rows: dict, leave_types: list[str]) -> dict:
+def present_exception(x: m.PayrollExceptionRecord, decisions: dict, raw_rows: dict) -> dict:
     kind = services.value_kind(x) if x.severity == "needs_review" else None
     decision = decisions.get(x.exception_key)
     ctx = x.context or {}
@@ -178,7 +178,6 @@ def present_exception(x: m.PayrollExceptionRecord, decisions: dict, raw_rows: di
         "hours": ctx.get("suggested_hours", ""),
         "location": ctx.get("scheduled", ""),
         "amount": ctx.get("deducted", ""),
-        "leave_type": leave_types[0] if leave_types else "",
     }.get(kind or "", "")
     return {
         "record": x,
@@ -198,8 +197,7 @@ def exceptions(request, run):
     decisions = {d.exception_key: d for d in services.decisions(run.period, run.sandbox)}
     records = list(run.exceptions.select_related("employee", "location").order_by("id"))
     raw_rows = raw_row_index(run.period, {(loc, n) for x in records for loc, n in x.rows})
-    leave_types = list(load_rules(DEFAULT_RULES_PATH).leave_types)
-    items = [present_exception(x, decisions, raw_rows, leave_types) for x in records]
+    items = [present_exception(x, decisions, raw_rows) for x in records]
     ctx.update({
         "sections": [
             ("blocking", "Blocking", "Payroll cannot be finalized until the input is fixed and payroll is re-run.",
@@ -210,8 +208,10 @@ def exceptions(request, run):
              [i for i in items if i["record"].severity == "needs_review" and i["record"].status != "open"]),
             ("info", "Handled by rule", "Settled automatically by a rule in the rules file. Shown for the record.",
              [i for i in items if i["record"].severity == "info"]),
+            ("attendance", "Attendance to discuss",
+             "These don't change anyone's pay. They're here so you can follow up with the employee.",
+             [i for i in items if i["record"].severity == "attendance"]),
         ],
-        "leave_types": leave_types,
         "decision_count": len(decisions),
     })
     return render(request, "core/exceptions.html", ctx)
@@ -219,16 +219,19 @@ def exceptions(request, run):
 
 def employee_markers(run: m.PayrollRun) -> dict[str, dict]:
     """Worst exception state per employee, for the payroll table."""
-    order = {"blocking": 0, "open": 1, "approved": 2, "info": 3}
-    labels = {"blocking": "Blocking", "open": "Needs review", "approved": "Reviewed", "info": "Info"}
+    order = {"blocking": 0, "open": 1, "approved": 2, "attendance": 3, "info": 4}
+    names = {"blocking": "Blocking", "open": "Needs review", "approved": "Reviewed", "attendance": "To discuss",
+             "info": "Info"}
     worst: dict[str, tuple[str, int]] = {}
     for x in run.exceptions.exclude(employee=None).select_related("employee"):
-        state = "blocking" if x.severity == "blocking" else (
-            "info" if x.severity == "info" else ("open" if x.status == "open" else "approved"))
+        if x.severity in ("blocking", "info", "attendance"):
+            state = x.severity
+        else:
+            state = "open" if x.status == "open" else "approved"
         emp = x.employee.employee_id
         current, count = worst.get(emp, ("info", 0))
         worst[emp] = (min(current, state, key=order.get), count + 1)
-    return {emp: {"state": s, "label": labels[s], "count": n} for emp, (s, n) in worst.items()}
+    return {emp: {"state": s, "label": names[s], "count": n} for emp, (s, n) in worst.items()}
 
 
 @with_run
@@ -310,7 +313,7 @@ def _no_sandbox(request, message: str):
 def decide(request):
     key = request.POST.get("exception_key", "")
     action = request.POST.get("action", "")
-    value = {k: request.POST.get(k, "") for k in ("hours", "location", "leave_type", "amount")}
+    value = {k: request.POST.get(k, "") for k in ("hours", "location", "amount")}
     sandbox = get_sandbox(request, create=True)
     if sandbox is None:
         return redirect("core:overview")
