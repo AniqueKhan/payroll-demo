@@ -298,7 +298,8 @@ def apply_scenarios(plan: Plan, shifts: list[dict]) -> tuple[list[dict], dict]:
     record(4, "E03", d(3), "A", code="MISSED_CLOCK_OUT", scheduled_hours="8.00")
     # 5: odd number of punches at store B (back from lunch, never clocked out)
     find("E08", d(2))["extra_punches"] = [at(2, "09:00"), at(2, "13:00"), at(2, "13:30")]
-    record(5, "E08", d(2), "B", code="ODD_PUNCH_COUNT", punches=3)
+    record(5, "E08", d(2), "B", code="ODD_PUNCH_COUNT", punches=3, suggested_hours="7.50",
+           suggested_blocks=[["09:00-13:00", "4.00"], ["13:30-17:00", "3.50"]])
     # 6: overnight shift (already scheduled 22:00-06:00)
     record(6, "E04", d(4), "A", code="OVERNIGHT_SHIFT", hours="8.00")
     # 7: late beyond grace, and late within grace

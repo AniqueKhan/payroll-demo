@@ -35,6 +35,11 @@
       <input type="hidden" name="exception_key" value="{{ x.exception_key }}">
       <div class="fields">
         {% if item.value_kind == "hours" %}
+          {% if x.context.suggested_blocks %}
+          <p class="suggestion small">Suggested pairing:
+            {% for block, h in x.context.suggested_blocks %}<span class="mono">{{ block }}</span> ({{ h }} h){% if not forloop.last %} + {% endif %}{% endfor %}
+            = <strong>{{ x.context.suggested_hours }} h</strong></p>
+          {% endif %}
           <label>Hours worked <input type="number" name="hours" min="0" max="24" step="0.01" value="{{ item.default }}" inputmode="decimal"></label>
         {% elif item.value_kind == "location" and item.choices %}
           <fieldset class="choices">

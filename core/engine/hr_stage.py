@@ -72,6 +72,30 @@ def plain_hours(value: Decimal) -> str:
     return f"{round_hours(value).normalize():f}"
 
 
+def suggest_pairing(punches: list[Punch], sched: Optional[ScheduledShift]) -> tuple[str, dict]:
+    """An odd number of punches in a day: pair them in order, read each gap as a break and the last punch as a
+    clock-in with a missed clock-out. The last block runs to the scheduled end when there is one after it;
+    otherwise only the paired blocks are suggested. Returns the review message and its context."""
+    times = sorted(p.timestamp for p in punches)
+    pairs = [(times[i], times[i + 1]) for i in range(0, len(times) - 1, 2)]
+    last = times[-1]
+    breaks = "a lunch break" if len(pairs) == 1 else f"{len(pairs)} breaks"
+    if sched is not None and sched.end > last:
+        pairs.append((last, sched.end))
+        basis = f", using the scheduled end of {hhmm(sched.end)}."
+    elif sched is not None:
+        basis = (f". The last clock-in ({hhmm(last)}) is after the scheduled end of {hhmm(sched.end)}, so only the "
+                 f"paired punches are counted.")
+    else:
+        basis = ". There is no schedule to end the last block, so only the paired punches are counted."
+    blocks = [(f"{hhmm(a)}-{hhmm(b)}", minutes_to_hours((b - a).total_seconds() / 60)) for a, b in pairs]
+    total = sum((h for _, h in blocks), ZERO)
+    message = (f"{len(times)} punches: {', '.join(hhmm(t) for t in times)}. Looks like {breaks} and a missed "
+               f"clock-out. Suggested {fmt_hours(total)} h{basis}")
+    return message, {"suggested_hours": fmt_hours(total),
+                     "suggested_blocks": [[label, fmt_hours(h)] for label, h in blocks]}
+
+
 def day_label(d: date) -> str:
     """'Thu Sep 17'."""
     return f"{d:%a %b} {d.day}"
@@ -337,12 +361,14 @@ class _EmployeeRun:
                     continue
             elif "odd_punches" in s.flags:
                 raw = ", ".join(f"{p.timestamp:%H:%M} (row {p.source_row})" for p in s.raw_punches)
-                self.flag("ODD_PUNCH_COUNT", f"{len(s.raw_punches)} punches at {store(s.location_code)} cannot be "
-                          f"paired. Day counted as 0.00 h. Raw punches: {raw}", loc=s.location_code, on=s.date,
-                          rows=rows, context=suggest)
+                at_store = [x for x in sched if x.location_code == s.location_code] or sched
+                message, pairing = suggest_pairing(s.raw_punches, at_store[0] if at_store else None)
+                self.flag("ODD_PUNCH_COUNT", message, loc=s.location_code, on=s.date, rows=rows, context=pairing)
                 if not adjusted:
+                    blocks = " + ".join(f"{b} {h} h" for b, h in pairing["suggested_blocks"])
                     self.line.step(f"{s.date} {store(s.location_code)}", f"{len(s.raw_punches)} punches ({raw}): "
-                                   f"0.00 h pending review", None, date=s.date, step="shift")
+                                   f"0.00 h pending review; suggested {pairing['suggested_hours']} h ({blocks})",
+                                   None, date=s.date, step="shift")
                     continue
             if "overnight" in s.flags and not adjusted:
                 self.flag("OVERNIGHT_SHIFT", f"Shift {s.start:%Y-%m-%d %H:%M} to {s.end:%Y-%m-%d %H:%M} "

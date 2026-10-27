@@ -192,9 +192,10 @@ def test_05_odd_punches_counted_zero_with_raw_punches(result, scenario):
     s = scenario(5)
     ex = only(result.exceptions_for("ODD_PUNCH_COUNT", s["employee"]))
     assert (ex.severity, ex.date, ex.location_code) == ("needs_review", s["date"], "B")
-    for raw in ("09:00", "13:00", "13:30"):
-        assert raw in ex.message
-    assert result.line_for(s["employee"]).regular_pay == D("1080.00")  # 72 h x $15.00
+    assert ex.message.startswith(f"{s['punches']} punches: 09:00, 13:00, 13:30.")
+    assert (ex.context["suggested_hours"], ex.context["suggested_blocks"]) == (s["suggested_hours"],
+                                                                               s["suggested_blocks"])
+    assert result.line_for(s["employee"]).regular_pay == D("1080.00")  # 72 h x $15.00: the day still counts 0 h
 
 
 # 6 -------------------------------------------------------------------------------------------

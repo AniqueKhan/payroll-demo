@@ -170,6 +170,8 @@ form.decide { border-top: 1px dashed var(--line); padding-top: 12px; margin-top:
 .choices { border: 0; padding: 0; margin: 0; flex: 1 1 100%; display: flex; flex-direction: column; gap: 6px; }
 .choices legend { font-size: .85rem; font-weight: 600; color: var(--muted); margin-bottom: 4px; padding: 0; }
 .fields label.choice { flex-direction: row; align-items: baseline; gap: 8px; font-weight: 400; color: inherit; font-size: .95rem; }
+.suggestion { flex: 1 1 100%; margin: 0; color: var(--muted); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 input[type=text], input[type=number], select { font: inherit; color: var(--ink); padding: 8px 10px; border: 1px solid #c5cfd8; border-radius: 8px; background: #fff; min-width: 120px; }
 input:focus, select:focus, button:focus-visible, a:focus-visible { outline: 3px solid #9ccde2; outline-offset: 1px; }
 .actions { display: flex; flex-wrap: wrap; gap: 10px; }
