@@ -21,7 +21,33 @@ FileLike = Union[str, Path, IO[str]]
 
 
 class RowError(ValueError):
-    """A row that cannot be turned into punches."""
+    """A row that cannot be turned into punches, with an explanation of each value that couldn't be read."""
+
+    def __init__(self, message: str, diagnoses=()):
+        super().__init__(message)
+        self.diagnoses = list(diagnoses)
+
+    @classmethod
+    def from_diagnoses(cls, diagnoses) -> "RowError":
+        return cls(" ".join(d.summary() for d in diagnoses), diagnoses)
+
+
+def check_values(checks) -> None:
+    """``checks`` is a list of (column, value, parser, diagnoser). Raise one RowError explaining every value
+    the parser rejects."""
+    bad = []
+    for column, value, parser, diagnoser in checks:
+        try:
+            parser(value)
+        except ValueError:
+            bad.append(diagnoser(column, value))
+    if bad:
+        raise RowError.from_diagnoses(bad)
+
+
+def sentence(text: str) -> str:
+    """End the text with a full stop unless it already ends a sentence."""
+    return text if text.endswith((".", "?", "!")) else f"{text}."
 
 
 def normalize_id(value: str) -> str:
@@ -110,15 +136,17 @@ class Importer(ABC):
             except (RowError, ValueError) as e:
                 if not in_period:
                     continue  # an unreadable punch next to the period cannot affect this payroll
+                diagnoses = [d.to_dict() for d in getattr(e, "diagnoses", [])]
                 # Severity is settled later by the HR stage, which knows the period and the schedule.
                 found.append(exc.make(
                     "MALFORMED_ROW",
-                    f"Store {self.location_code} row {source_row}: {e} ({', '.join(row.values())})",
+                    sentence(f"Store {self.location_code} row {source_row} ({', '.join(row.values())}): {e}"),
                     employee_id=employee_id,
                     location_code=self.location_code,
                     on=on,
                     resolution="Row skipped",
                     rows=[(self.location_code, source_row)],
+                    context={"diagnosis": diagnoses} if diagnoses else None,
                 ))
         for ident, source_rows in unknown.items():
             found.append(exc.make(

@@ -14,7 +14,7 @@ from typing import Iterable, Optional
 
 from . import exceptions as exc
 from .config import Rules
-from .explain import allocate, fmt_hours, fmt_money, money
+from .explain import allocate, fmt_hours, fmt_money, money, round_hours
 from .types import (
     ZERO, Adjustments, Employee, LeaveRecord, PayrollException, PayrollLine, Period, Punch,
     ScheduledShift, Shift, exception_key, minutes_to_hours,
@@ -65,6 +65,43 @@ def store(code: str) -> str:
 
 def hhmm(dt) -> str:
     return dt.strftime("%H:%M") if dt else "--:--"
+
+
+def plain_hours(value: Decimal) -> str:
+    """Hours without trailing zeros: '3.5', '9'."""
+    return f"{round_hours(value).normalize():f}"
+
+
+def suggest_pairing(punches: list[Punch], sched: Optional[ScheduledShift]) -> tuple[str, dict]:
+    """An odd number of punches in a day: pair them in order, read each gap as a break and the last punch as a
+    clock-in with a missed clock-out. The last block runs to the scheduled end when there is one after it;
+    otherwise only the paired blocks are suggested. Returns the review message and its context."""
+    times = sorted(p.timestamp for p in punches)
+    pairs = [(times[i], times[i + 1]) for i in range(0, len(times) - 1, 2)]
+    last = times[-1]
+    breaks = "a lunch break" if len(pairs) == 1 else f"{len(pairs)} breaks"
+    if sched is not None and sched.end > last:
+        pairs.append((last, sched.end))
+        basis = f", using the scheduled end of {hhmm(sched.end)}."
+    elif sched is not None:
+        basis = (f". The last clock-in ({hhmm(last)}) is after the scheduled end of {hhmm(sched.end)}, so only the "
+                 f"paired punches are counted.")
+    else:
+        basis = ". There is no schedule to end the last block, so only the paired punches are counted."
+    blocks = [(f"{hhmm(a)}-{hhmm(b)}", minutes_to_hours((b - a).total_seconds() / 60)) for a, b in pairs]
+    total = sum((h for _, h in blocks), ZERO)
+    message = (f"{len(times)} punches: {', '.join(hhmm(t) for t in times)}. Looks like {breaks} and a missed "
+               f"clock-out. Suggested {fmt_hours(total)} h{basis}")
+    return message, {"suggested_hours": fmt_hours(total),
+                     "suggested_blocks": [[label, fmt_hours(h)] for label, h in blocks]}
+
+
+WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+
+def day_label(d: date) -> str:
+    """'Thu Sep 17'."""
+    return f"{d:%a %b} {d.day}"
 
 
 def rows_of(punches: Iterable[Punch]) -> list[tuple[str, int]]:
@@ -204,6 +241,10 @@ class _EmployeeRun:
         n_weeks = rules.period_length_days // 7
         self.weeks = [WeekHours(i + 1, period.start + timedelta(days=7 * i)) for i in range(n_weeks)]
 
+    @property
+    def who(self) -> str:
+        return f"{self.e.id} {self.e.name}"
+
     def flag(self, code, message, *, loc=None, on=None, resolution=None, severity=None, rows=None, context=None):
         self.found.append(exc.make(code, message, employee_id=self.e.id, location_code=loc, on=on,
                                    resolution=resolution, severity=severity, rows=rows, context=context))
@@ -298,13 +339,13 @@ class _EmployeeRun:
             adjusted = "adjusted" in s.flags
             if "malformed_row" in s.flags:
                 bad_rows = self.bad_rows[(s.location_code, s.date)]
-                bad = "; ".join(x.message for x in bad_rows)
+                bad = " ".join(x.message for x in bad_rows)
                 raw = ", ".join(f"{p.timestamp:%H:%M} {(p.kind or 'punch').upper()} (row {p.source_row})"
                                 for p in s.raw_punches) or "none"
-                self.flag("MALFORMED_ROW", f"{bad}. The remaining punches cannot be paired: counted "
+                self.flag("MALFORMED_ROW", f"{bad} The remaining punches cannot be paired: counted "
                           f"as 0.00 h. Remaining punches: {raw}. {hint}", loc=s.location_code, on=s.date,
                           severity=exc.NEEDS_REVIEW, rows=rows + [r for b in bad_rows for r in b.rows],
-                          context=suggest)
+                          context={**suggest, **diagnosis_of(bad_rows)})
                 if not adjusted:
                     self.line.step(f"{s.date} {store(s.location_code)}", f"unreadable punch row; remaining "
                                    f"punches {raw}: 0.00 h pending review", None, date=s.date, step="shift")
@@ -323,12 +364,14 @@ class _EmployeeRun:
                     continue
             elif "odd_punches" in s.flags:
                 raw = ", ".join(f"{p.timestamp:%H:%M} (row {p.source_row})" for p in s.raw_punches)
-                self.flag("ODD_PUNCH_COUNT", f"{len(s.raw_punches)} punches at {store(s.location_code)} cannot be "
-                          f"paired. Day counted as 0.00 h. Raw punches: {raw}", loc=s.location_code, on=s.date,
-                          rows=rows, context=suggest)
+                at_store = [x for x in sched if x.location_code == s.location_code] or sched
+                message, pairing = suggest_pairing(s.raw_punches, at_store[0] if at_store else None)
+                self.flag("ODD_PUNCH_COUNT", message, loc=s.location_code, on=s.date, rows=rows, context=pairing)
                 if not adjusted:
+                    blocks = " + ".join(f"{b} {h} h" for b, h in pairing["suggested_blocks"])
                     self.line.step(f"{s.date} {store(s.location_code)}", f"{len(s.raw_punches)} punches ({raw}): "
-                                   f"0.00 h pending review", None, date=s.date, step="shift")
+                                   f"0.00 h pending review; suggested {pairing['suggested_hours']} h ({blocks})",
+                                   None, date=s.date, step="shift")
                     continue
             if "overnight" in s.flags and not adjusted:
                 self.flag("OVERNIGHT_SHIFT", f"Shift {s.start:%Y-%m-%d %H:%M} to {s.end:%Y-%m-%d %H:%M} "
@@ -340,23 +383,10 @@ class _EmployeeRun:
                           f"no schedule. Paid at {store(s.location_code)} rate", loc=s.location_code, on=s.date,
                           rows=rows)
             elif s.location_code not in sched_locs:
-                scheduled = sched[0].location_code
-                s.pay_location_code = scheduled
-                self.flag("WRONG_LOCATION", f"Scheduled at {store(scheduled)} but punches came from "
-                          f"{store(s.location_code)}. Paid at {store(scheduled)} rate and cost "
-                          f"allocated to {store(scheduled)}; confirm", loc=scheduled, on=s.date, rows=rows,
-                          context={"scheduled": scheduled, "punched": s.location_code,
-                                   "stores": sorted(self.e.rates)})
-                override = self.adjustments.location_for(self.e.id, s.date)
-                if override:
-                    s.pay_location_code = override.location_code
-                    self.line.adjustment("pay store", f"{s.date}: paid at {store(override.location_code)} rate, "
-                                         f"cost allocated to {store(override.location_code)}", override.note,
-                                         date=s.date)
-                    self.resolve("WRONG_LOCATION", s.date, scheduled,
-                                 f"Reviewer chose {store(override.location_code)}"
-                                 + (f": {override.note}" if override.note else ""))
+                self.wrong_location(s, sched[0].location_code, rows)
             note = f" (punched at {store(s.location_code)})" if s.paid_at != s.location_code else ""
+            if "wrong_location_default" in s.flags:
+                note += " (scheduled elsewhere; paid where they clocked in, pending review)"
             if "malformed_row_paid" in s.flags and not adjusted:
                 note += " (paid from remaining punches; unreadable row pending review)"
             if adjusted:
@@ -370,6 +400,41 @@ class _EmployeeRun:
             self.line.step(f"{s.date} {store(s.paid_at)}", f"{times} {fmt_hours(s.hours)} h{note}", None,
                            date=s.date, hours=s.hours, step="shift")
             bump(self.line, s.paid_at, "hours", s.hours)
+
+    def wrong_location(self, s: Shift, scheduled: str, rows) -> None:
+        """Punched at a store other than the scheduled one. By default the shift is paid where they clocked in
+        (that's where the work is on record); the reviewer can say it was the scheduled store instead."""
+        punched = s.location_code
+        punched_rate, scheduled_rate = self.rate(punched), self.rate(scheduled)
+        default = punched if punched_rate is not None else scheduled
+        choices = [[punched, f"Worked at {store(punched)} (where they clocked in)"],
+                   [scheduled, f"Worked at {store(scheduled)} (scheduled), clocked in on the wrong device"]]
+        choices = [c for c in choices if self.rate(c[0]) is not None]
+        if punched_rate is not None and scheduled_rate is not None:
+            diff = money(s.hours * abs(punched_rate - scheduled_rate))
+            message = (f"Scheduled at {store(scheduled)} ({fmt_money(scheduled_rate)}/h) but clocked in at "
+                       f"{store(punched)} ({fmt_money(punched_rate)}/h). Paid at {store(punched)}'s rate by "
+                       f"default. Difference for this shift: {fmt_money(diff)}.")
+        else:
+            message = (f"Scheduled at {store(scheduled)} but clocked in at {store(punched)}, where there is no pay "
+                       f"rate. Paid at {store(scheduled)}'s rate by default.")
+        self.flag("WRONG_LOCATION", message, loc=scheduled, on=s.date, rows=rows,
+                  context={"scheduled": scheduled, "punched": punched, "default": default, "choices": choices,
+                           "stores": [c[0] for c in choices]})
+        override = self.adjustments.location_for(self.e.id, s.date)
+        if override:
+            s.pay_location_code = override.location_code
+            label = next((text for code, text in choices if code == override.location_code),
+                         f"Worked at {store(override.location_code)}")
+            rate = self.rate(override.location_code) or ZERO
+            self.line.adjustment("pay store", f"{s.date}: reviewer chose \"{label}\": paid at "
+                                 f"{store(override.location_code)}'s rate ({fmt_money(rate)}/h), cost allocated to "
+                                 f"{store(override.location_code)}", override.note, date=s.date)
+            self.resolve("WRONG_LOCATION", s.date, scheduled, f"Reviewer chose: {label}"
+                         + (f". Note: {override.note}" if override.note else ""))
+        else:
+            s.pay_location_code = default
+            s.flags.append("wrong_location_default")
 
     def attendance(self) -> None:
         for sched in self.schedules:
@@ -388,24 +453,42 @@ class _EmployeeRun:
             grace = timedelta(minutes=self.rules.late_grace_minutes)
             late_by = int((first_in - sched.start).total_seconds() // 60)
             if first_in > sched.start + grace:
-                penalty = money(self.rules.late_penalty)
-                self.line.penalties += penalty
-                self.line.step("Late arrival penalty", f"{sched.date}: in {hhmm(first_in)}, scheduled "
-                               f"{hhmm(sched.start)} + {self.rules.late_grace_minutes} min grace; late "
-                               f"{late_by} min = {fmt_money(penalty)}", penalty, date=sched.date)
-                self.flag("LATE_ARRIVAL", f"Clocked in {hhmm(first_in)}, scheduled {hhmm(sched.start)} "
-                          f"({late_by} min late, grace {self.rules.late_grace_minutes} min)",
-                          loc=sched.location_code, on=sched.date, resolution=f"Penalty {fmt_money(penalty)}",
+                message = (f"{self.who}: clocked in {hhmm(first_in)} on {day_label(sched.date)}, {late_by} minutes "
+                           f"after the {hhmm(sched.start)} start (grace {self.rules.late_grace_minutes} min).")
+                resolution = "No penalty: attendance penalties are off"
+                if self.rules.attendance_penalties_enabled:
+                    penalty = money(self.rules.late_penalty)
+                    self.line.penalties += penalty
+                    self.line.step("Late arrival penalty", f"{sched.date}: in {hhmm(first_in)}, scheduled "
+                                   f"{hhmm(sched.start)} + {self.rules.late_grace_minutes} min grace; late "
+                                   f"{late_by} min = {fmt_money(penalty)}", penalty, date=sched.date)
+                    message += f" Late penalty {fmt_money(penalty)}."
+                    resolution = f"Penalty {fmt_money(penalty)}"
+                self.flag("LATE_ARRIVAL", message, loc=sched.location_code, on=sched.date, resolution=resolution,
                           rows=rows_of(first.raw_punches[:1]))
             worked = sum((s.hours for s in day), ZERO)
             if not self.hourly and worked < sched.hours * self.rules.half_day_threshold:
-                deduction = money(self.daily_rate / 2)
-                self.deduct_absence(deduction, f"Half day {sched.date}", f"worked {fmt_hours(worked)} h < "
-                                    f"{self.rules.half_day_threshold} x {fmt_hours(sched.hours)} h scheduled: "
-                                    f"0.5 x {fmt_money(self.daily_rate)} = {fmt_money(deduction)}", sched.date)
-                self.flag("HALF_DAY", f"Worked {fmt_hours(worked)} h of {fmt_hours(sched.hours)} h scheduled",
-                          loc=sched.location_code, on=sched.date, resolution=f"Deducted {fmt_money(deduction)}",
-                          rows=rows_of(p for s in day for p in s.raw_punches))
+                self.partial_day(sched, day, worked)
+
+    def partial_day(self, sched: ScheduledShift, day: list[Shift], worked: Decimal) -> None:
+        """A salaried short day. Exempt pay can't be reduced for a partial-day absence unless the rules say so."""
+        rows = rows_of(p for s in day for p in s.raw_punches)
+        if self.rules.salaried_partial_day_deduction:
+            deduction = money(self.daily_rate / 2)
+            self.deduct_absence(deduction, f"Half day {sched.date}", f"worked {fmt_hours(worked)} h < "
+                                f"{self.rules.half_day_threshold} x {fmt_hours(sched.hours)} h scheduled: "
+                                f"0.5 x {fmt_money(self.daily_rate)} = {fmt_money(deduction)}", sched.date)
+            self.flag("HALF_DAY", f"Worked {fmt_hours(worked)} h of {fmt_hours(sched.hours)} h scheduled",
+                      loc=sched.location_code, on=sched.date, resolution=f"Deducted {fmt_money(deduction)}",
+                      rows=rows)
+            return
+        self.line.step(f"Partial day {sched.date}", f"worked {fmt_hours(worked)} h of {fmt_hours(sched.hours)} h "
+                       f"scheduled: no deduction. Partial-day absences can't be deducted from exempt salaried "
+                       f"pay (rules: salaried_partial_day_deduction is off)", None, date=sched.date)
+        self.flag("PARTIAL_DAY", f"{self.who} worked {plain_hours(worked)} of {plain_hours(sched.hours)} scheduled "
+                  f"hours on {day_label(sched.date)}. Pay not reduced: partial-day absences can't be deducted from "
+                  f"exempt salaried pay. Worth a conversation, or recording it against paid leave.",
+                  loc=sched.location_code, on=sched.date, resolution="No deduction: exempt salaried pay", rows=rows)
 
     def deduct_absence(self, amount: Decimal, label: str, formula: str, on: date) -> None:
         self.line.absence_deductions += amount
@@ -446,56 +529,101 @@ class _EmployeeRun:
                 self.flag("ABSENCE_INFORMED", f"Absent, leave record: {kind}", loc=loc, on=sched.date,
                           resolution=outcome)
                 return
-        # Uninformed absence (no leave record, or a leave record entered without notice).
-        parts = []
-        if leave is None and not self.hourly:
-            self.deduct_absence(self.daily_rate, f"Absence {sched.date}",
-                                f"uninformed: 1 day x {fmt_money(self.daily_rate)}", sched.date)
-            parts.append(f"deducted {fmt_money(self.daily_rate)}")
-        penalty = money(self.rules.uninformed_penalty)
-        if penalty:
-            self.line.penalties += penalty
-            self.line.step(f"Uninformed absence penalty {sched.date}", f"rules: {fmt_money(penalty)}", penalty,
-                           date=sched.date)
-            parts.append(f"penalty {fmt_money(penalty)}")
-        detail = "no leave record" if leave is None else f"leave '{leave.leave_type}' recorded without notice"
-        self.flag("ABSENCE_UNINFORMED", f"Scheduled {hhmm(sched.start)}-{hhmm(sched.end)} at {store(loc)}, no "
-                  f"punches, {detail}: {', '.join(parts) or 'no pay change'}", loc=loc, on=sched.date)
+        # Uninformed absence (no leave record, or a leave record entered without notice). The pay effect is
+        # automatic and rule-based, so this is an attendance item to discuss, not a pay decision.
+        when = day_label(sched.date)
+        if leave is None:
+            message = f"{self.who}: absent {when} with no notice and no leave record."
+            if not self.hourly:
+                self.deduct_absence(self.daily_rate, f"Absence {sched.date}",
+                                    f"uninformed: 1 day x {fmt_money(self.daily_rate)}", sched.date)
+                message += f" One day's pay deducted ({fmt_money(self.daily_rate)})."
+            else:
+                message += " No hours were worked, so nothing is paid for the day."
+        else:
+            message = (f"{self.who}: absent {when} without notice; {leave.leave_type} leave was recorded "
+                       f"afterwards. {outcome}.")
+        if self.rules.attendance_penalties_enabled:
+            penalty = money(self.rules.uninformed_penalty)
+            if penalty:
+                self.line.penalties += penalty
+                self.line.step(f"Uninformed absence penalty {sched.date}", f"rules: {fmt_money(penalty)}", penalty,
+                               date=sched.date)
+                message += f" Absence penalty {fmt_money(penalty)}."
+        self.flag("ABSENCE_UNINFORMED", message, loc=loc, on=sched.date)
 
     def reclassified_absence(self, sched: ScheduledShift, leave: Optional[LeaveRecord], override) -> None:
-        """A reviewer turned an uninformed absence into informed leave of a configured type."""
+        """A reviewer recorded an absence without notice as paid or unpaid leave. No absence penalty applies."""
         loc = sched.location_code
-        paid = self.rules.leave_types.get(override.leave_type, False)
-        kind = f"{override.leave_type} leave ({'paid' if paid else 'unpaid'} per rules)"
-        self.line.adjustment("absence reclassified", f"{sched.date}: uninformed absence treated as {kind}; "
-                             f"no uninformed penalty", override.note, date=sched.date)
-        if self.hourly and paid:
+        kind = "paid leave" if override.paid else "unpaid leave"
+        if self.hourly and override.paid:
             rate = self.rate(loc) or ZERO
             pay = money(sched.hours * rate)
             self.line.regular_pay += pay
             bump(self.line, loc, "regular_pay", pay)
-            self.line.step(f"Paid leave {sched.date}", f"{override.leave_type}: {fmt_hours(sched.hours)} h "
-                           f"scheduled x {fmt_money(rate)} = {fmt_money(pay)}", pay, date=sched.date)
-            outcome = f"paid {fmt_money(pay)} leave"
-        elif not self.hourly and not paid:
+            self.line.step(f"Paid leave {sched.date}", f"{fmt_hours(sched.hours)} h scheduled x {fmt_money(rate)} "
+                           f"= {fmt_money(pay)}", pay, date=sched.date)
+            outcome = f"{fmt_hours(sched.hours)} h scheduled paid ({fmt_money(pay)})"
+        elif not self.hourly and not override.paid:
             self.deduct_absence(self.daily_rate, f"Unpaid leave {sched.date}",
                                 f"1 day x {fmt_money(self.daily_rate)}", sched.date)
-            outcome = f"deducted {fmt_money(self.daily_rate)}"
+            outcome = f"one day's pay deducted ({fmt_money(self.daily_rate)})"
+        elif self.hourly:
+            outcome = "no hours were worked, so nothing is paid for the day"
         else:
-            outcome = "no pay change"
-        detail = "no leave record" if leave is None else f"leave '{leave.leave_type}' recorded without notice"
-        self.flag("ABSENCE_UNINFORMED", f"Scheduled {hhmm(sched.start)}-{hhmm(sched.end)} at {store(loc)}, no "
-                  f"punches, {detail}", loc=loc, on=sched.date)
-        self.resolve("ABSENCE_UNINFORMED", sched.date, loc, f"Reviewer reclassified as {kind}, {outcome}"
-                     + (f": {override.note}" if override.note else ""))
+            outcome = "salary paid in full, no deduction for the day"
+        self.line.adjustment("recorded as leave", f"{sched.date}: absence without notice recorded as {kind}; "
+                             f"{outcome}", override.note, date=sched.date)
+        detail = "no leave record" if leave is None else f"{leave.leave_type} leave recorded afterwards"
+        self.flag("ABSENCE_UNINFORMED", f"{self.who}: absent {day_label(sched.date)} with no notice and {detail}.",
+                  loc=loc, on=sched.date)
+        self.resolve("ABSENCE_UNINFORMED", sched.date, loc, f"Recorded as {kind} by a reviewer: {outcome}"
+                     + (f". Note: {override.note}" if override.note else ""))
+
+    def week_portions(self, s: Shift) -> list[tuple[WeekHours, Decimal]]:
+        """A shift's hours per workweek, for the overtime count only. Workweeks start at ``week_start_time``
+        on the week's first day, so a shift that crosses that moment (Sunday 22:00 to Monday 06:00) is split
+        between the two weeks. The shift itself stays on, and is paid on, the day it started.
+
+        Only boundaries inside the period split a shift. Hours before the first week starts count in week 1,
+        and hours after the period ends count in the last week: carrying them into the next period's first
+        workweek is out of scope.
+        """
+        if not s.hours:
+            return []
+        home = next((w for w in self.weeks if w.contains(s.date)), None)
+        if home is None:
+            return []
+        if s.start is None or s.end is None or "adjusted" in s.flags:
+            return [(home, s.hours)]
+        bounds = [datetime.combine(w.start, self.rules.week_start_time) for w in self.weeks[1:]]
+        edges = [datetime.min] + bounds + [datetime.max]
+        portions = []
+        for week, lo, hi in zip(self.weeks, edges, edges[1:]):
+            overlap = (min(s.end, hi) - max(s.start, lo)).total_seconds()
+            if overlap > 0:
+                portions.append([week, minutes_to_hours(overlap / 60)])
+        if len(portions) <= 1:
+            return [(portions[0][0] if portions else home, s.hours)]
+        # Keep the split exact: any rounding difference goes to the largest part.
+        max(portions, key=lambda p: p[1])[1] += s.hours - sum((p[1] for p in portions), ZERO)
+        kind = "Overnight shift" if s.end.date() != s.start.date() else "Shift"
+        parts = ", ".join(f"{fmt_hours(h)} h{' counted' if i == 0 else ''} in Week {w.index}"
+                          for i, (w, h) in enumerate(portions))
+        weekday = WEEKDAY_NAMES[self.rules.week_start]
+        self.line.step(f"Workweek split {s.date}", f"{kind} {day_label(s.start.date())} {hhmm(s.start)} to "
+                       f"{day_label(s.end.date())} {hhmm(s.end)}: {parts}. The workweek starts {weekday} "
+                       f"{hhmm(self.rules.week_start_time)}; the split only affects overtime, the shift stays on "
+                       f"{day_label(s.date)}", None, date=s.date)
+        return [(w, h) for w, h in portions]
 
     def weekly_hours(self) -> None:
         line, rules = self.line, self.rules
         exempt = self.e.pay_type in rules.ot_exempt_pay_types
+        for s in self.shifts:
+            for week, hours in self.week_portions(s):
+                week.hours_by_loc[s.paid_at] = week.hours_by_loc.get(s.paid_at, ZERO) + hours
         for week in self.weeks:
-            for s in self.shifts:
-                if s.hours and week.contains(s.date):
-                    week.hours_by_loc[s.paid_at] = week.hours_by_loc.get(s.paid_at, ZERO) + s.hours
             if not week.hours_by_loc:
                 continue
             for loc, hours in sorted(week.hours_by_loc.items()):
@@ -554,6 +682,12 @@ def compute_premium(week: WeekHours, line: PayrollLine, rules: Rules, label: str
 UNRESOLVED = {"missed_clock_out", "missed_clock_in", "odd_punches"}
 
 
+def diagnosis_of(bad_rows: Iterable[PayrollException]) -> dict:
+    """The importers' explanation of each unreadable value, kept for the screens."""
+    found = [d for b in bad_rows for d in (b.context or {}).get("diagnosis", [])]
+    return {"diagnosis": found} if found else {}
+
+
 def settle_bad_rows(
     bad_rows: Iterable[PayrollException], shifts: list[Shift], period: Period,
 ) -> tuple[list[Shift], dict[str, dict[tuple[str, date], list[PayrollException]]], list[PayrollException]]:
@@ -568,9 +702,10 @@ def settle_bad_rows(
     found: list[PayrollException] = []
     for bad in bad_rows:
         if bad.date is None:
-            found.append(exc.make("MALFORMED_ROW", f"{bad.message}. Work date unreadable, so the affected day "
+            found.append(exc.make("MALFORMED_ROW", f"{bad.message} Work date unreadable, so the affected day "
                                   f"is unknown: check this employee's punches", employee_id=bad.employee_id,
-                                  location_code=bad.location_code, severity=exc.NEEDS_REVIEW, rows=bad.rows))
+                                  location_code=bad.location_code, severity=exc.NEEDS_REVIEW, rows=bad.rows,
+                                  context=diagnosis_of([bad]) or None))
         elif not period.start <= bad.date <= period.end:
             continue  # belongs to another pay period: skipped quietly
         else:
@@ -594,11 +729,11 @@ def settle_bad_rows(
                 kept.extend(day_shifts)
                 found.append(exc.make(
                     "MALFORMED_ROW",
-                    f"{'; '.join(b.message for b in bads)}. Paid {fmt_hours(hours)} h from the remaining punches; "
+                    f"{' '.join(b.message for b in bads)} Paid {fmt_hours(hours)} h from the remaining punches; "
                     f"confirm the unreadable punch was not a real break or extra shift.",
                     employee_id=emp_id, location_code=loc, on=day, severity=exc.NEEDS_REVIEW,
                     rows=[r for b in bads for r in b.rows] + rows_of(p for s in day_shifts for p in s.raw_punches),
-                    context={"suggested_hours": fmt_hours(hours)},
+                    context={"suggested_hours": fmt_hours(hours), **diagnosis_of(bads)},
                 ))
                 del days[(loc, day)]
                 continue

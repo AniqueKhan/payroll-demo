@@ -11,7 +11,7 @@
         <tr><td colspan="4" class="muted">No labor cost yet.</td></tr>
       {% endfor %}
       </tbody>
-      <tfoot><tr><th>Total</th><td class="num">{{ department_hours|hours }}</td><td class="num"><strong>{{ department_gross|money }}</strong></td><td></td></tr></tfoot>
+      <tfoot><tr><th>Total</th><td class="num">{{ department_hours|hours }}</td><td class="num"><strong>{{ department_gross|money }}</strong></td><td class="num">{% if departments %}{{ department_share }}%{% endif %}</td></tr></tfoot>
     </table>
   </div>
   <p class="small muted">Labor cost is gross pay: regular + overtime + add-ons - absence deductions. The department comes from each shift's clock-in row; shifts without one are Unassigned.</p>

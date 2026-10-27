@@ -47,8 +47,8 @@ def test_every_page_renders(client, period, name, kw):
 
 def test_overview_calls_for_review_and_disables_finalize(client, period):
     html = client.get(url("overview")).content.decode()
-    assert "7 items need your review" in html
-    assert "disabled" in html and "7 needs_review exception(s) still open" in html
+    assert "6 items need your review" in html
+    assert "disabled" in html and "6 needs_review exception(s) still open" in html
 
 
 def test_inputs_mark_flagged_rows_unknown_columns_and_link_to_exceptions(client, period):
@@ -69,9 +69,9 @@ def test_unknown_column_is_a_note_on_the_store_tab_not_an_exception(client, peri
         html = client.get(url(page)).content.decode()
         assert "Badge" not in html and "Unexpected column" not in html
     overview = client.get(url("overview")).content.decode()
-    assert '<span class="pill pill-info">Handled by rule</span> <strong>15</strong>' in overview
+    assert '<span class="pill pill-info">Handled by rule</span> <strong>14</strong>' in overview
     queue = client.get(url("exceptions")).content.decode()
-    assert '<span class="pill pill-info">Handled by rule</span> <span class="count">15</span>' in queue
+    assert '<span class="pill pill-info">Handled by rule</span> <span class="count">14</span>' in queue
 
 
 def test_exceptions_queue_shows_forms_with_suggested_values(client, period):
@@ -79,14 +79,15 @@ def test_exceptions_queue_shows_forms_with_suggested_values(client, period):
     assert 'id="exc-MISSED_CLOCK_OUT-E03-2026-09-10-A"' in html
     assert 'name="hours" min="0" max="24" step="0.01" value="8.00"' in html
     assert 'name="amount" min="0" max="400.00" step="0.01" value="276.00"' in html
-    assert '<option value="B" selected>Store B (scheduled)</option>' in html
+    assert '<input type="radio" name="location" value="A" checked>' in html
+    assert "Worked at Store B (scheduled), clocked in on the wrong device" in html
     assert "Acknowledge" in html  # exit settlement: approve only
 
 
 def test_payroll_lists_everyone_with_markers_and_totals(client, period):
     html = client.get(url("payroll")).content.decode()
     assert html.count('class="rowlink"') == 18
-    assert "Needs review" in html and "$24,341.99" in html
+    assert "Needs review" in html and "$24,466.49" in html
 
 
 def test_decide_via_post_updates_totals_and_confirms(client, period):
@@ -94,9 +95,9 @@ def test_decide_via_post_updates_totals_and_confirms(client, period):
                                     "action": "approve_with_value", "hours": "8", "note": "ok"}, follow=True)
     assert r.status_code == 200
     html = r.content.decode()
-    assert "Approved with value: Missed clock-out. 6 items still need review." in html
+    assert "Approved with value: Missed clock-out. 5 items still need review." in html
     assert "Your copy" in html and "Start over" in html
-    assert D(my_run(client, period).totals["gross"]) == D("24341.99") + D("124.00")
+    assert D(my_run(client, period).totals["gross"]) == D("24466.49") + D("124.00")
     assert "Reviewer adjustment" in client.get(url("employee", employee_id="E03")).content.decode()
 
 
@@ -116,8 +117,8 @@ def test_blocking_cannot_be_approved_via_post(client, tmp_path):
 
 
 def test_undo_and_reset_via_post(client, period):
-    key = "ABSENCE_UNINFORMED|E07|2026-09-17|B"
-    client.post(url("decide"), {"exception_key": key, "action": "approve_with_value", "leave_type": "sick"})
+    key = "MISSED_CLOCK_OUT|E03|2026-09-10|A"
+    client.post(url("decide"), {"exception_key": key, "action": "approve_with_value", "hours": "8"})
     assert "Undo" in client.get(url("exceptions")).content.decode()
     client.post(url("undo"), {"exception_key": key})
     assert not period.decisions.exists()

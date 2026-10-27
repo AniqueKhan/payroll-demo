@@ -15,7 +15,7 @@ from .demo_data import generator
 from .engine import inputs as engine_inputs
 from .engine import types as t
 from .engine.config import DEFAULT_RULES_PATH, Rules, load_rules
-from .engine.exceptions import BLOCKING, INFO, NEEDS_REVIEW
+from .engine.exceptions import ATTENDANCE, BLOCKING, INFO, NEEDS_REVIEW
 from .engine.explain import fmt_money
 from .engine.importers import get_importer
 from .engine.run import PayrollInputs, attribute_rows, make_period
@@ -43,10 +43,12 @@ DECISION_VALUES: dict[str, Optional[str]] = {
     "ODD_PUNCH_COUNT": "hours",
     "MALFORMED_ROW": "hours",
     "WRONG_LOCATION": "location",
-    "ABSENCE_UNINFORMED": "leave_type",
     "LOAN_CAPPED": "amount",
     "EXIT_FINAL_SETTLEMENT": None,
+    # Attendance: optional, never required for finalizing. Only "approve with value" applies.
+    "ABSENCE_UNINFORMED": "leave",
 }
+LEAVE_CHOICES = ("paid", "unpaid")
 
 
 def value_kind(record: "m.PayrollExceptionRecord") -> Optional[str]:
@@ -127,9 +129,11 @@ def store_raw_rows(location: m.Location, period: m.PayPeriod, path: Path, employ
     importer = get_importer(location.export_format)(location.code, employees)
     _, found = importer.parse(path)
     errors: dict[int, list[str]] = {}
+    diagnoses: dict[int, list[dict]] = {}
     for x in found:
         for _, row in x.rows:
             errors.setdefault(row, []).append(x.message)
+            diagnoses.setdefault(row, []).extend((x.context or {}).get("diagnosis", []))
     with open(path, encoding="utf-8-sig", newline="") as fh:
         rows = [r for r in csv.reader(fh) if r]  # blank lines are skipped, like the importers do
     header, body = (rows[0], rows[1:]) if rows else ([], [])
@@ -139,7 +143,7 @@ def store_raw_rows(location: m.Location, period: m.PayPeriod, path: Path, employ
         columns=header, unknown_columns=[c for c in header if c not in importer.supported_columns])
     m.RawImportRow.objects.bulk_create(
         m.RawImportRow(batch=batch, row_number=n, raw=dict(zip(header, values)),
-                       parse_error="; ".join(errors.get(n, [])))
+                       parse_error=" ".join(errors.get(n, [])), diagnosis=diagnoses.get(n, []))
         for n, values in enumerate(body, start=2))
     return batch
 
@@ -223,8 +227,8 @@ def decisions_to_adjustments(period: m.PayPeriod, sandbox: Optional[m.DemoSandbo
             adj.hours_overrides.append(t.HoursOverride(emp, on, loc, Decimal(value["hours"]), d.note))
         elif kind == "location" and on:
             adj.location_overrides.append(t.LocationOverride(emp, on, value["location"], d.note))
-        elif kind == "leave_type" and on:
-            adj.leave_overrides.append(t.LeaveOverride(emp, on, value["leave_type"], d.note))
+        elif kind == "leave" and on:
+            adj.leave_overrides.append(t.LeaveOverride(emp, on, value["leave"] == "paid", d.note))
         elif kind == "amount":
             adj.loan_overrides.append(t.LoanOverride(emp, value["loan_kind"], Decimal(value["amount"]), d.note))
     return adj
@@ -325,12 +329,15 @@ def _clean_value(record: m.PayrollExceptionRecord, kind: str, value: dict) -> di
         loc = str(value.get("location", "")).upper()
         if loc not in (record.employee.rates or {}):
             raise DecisionError(f"{record.employee.name} has no pay rate at store '{loc}'")
+        choices = [code for code, _ in (record.context or {}).get("choices", [])]
+        if choices and loc not in choices:
+            raise DecisionError(f"Choose where the shift was worked: Store {' or Store '.join(choices)}")
         return {"location": loc}
-    if kind == "leave_type":
-        leave_type = str(value.get("leave_type", ""))
-        if leave_type not in load_rules(DEFAULT_RULES_PATH).leave_types:
-            raise DecisionError(f"'{leave_type}' is not a leave type in the rules")
-        return {"leave_type": leave_type}
+    if kind == "leave":
+        leave = str(value.get("leave", ""))
+        if leave not in LEAVE_CHOICES:
+            raise DecisionError("Choose paid or unpaid leave")
+        return {"leave": leave}
     if kind == "amount":
         try:
             amount = Decimal(str(value.get("amount", ""))).quantize(Decimal("0.01"))
@@ -355,8 +362,13 @@ def decide(period: m.PayPeriod, exception_key: str, action: str, value: Optional
         raise DecisionError("That exception is not in the current run")
     if record.severity == BLOCKING:
         raise DecisionError("Blocking exceptions cannot be approved: fix the input and re-run")
+    if record.severity == ATTENDANCE and (action != m.ReviewDecision.APPROVE_WITH_VALUE or value_kind(record) is None):
+        raise DecisionError("Attendance items need no decision: follow up with the employee")
     if record.severity == INFO:
         raise DecisionError("Handled by a rule: no decision needed")
+    if action == m.ReviewDecision.APPROVE and (record.context or {}).get("choices"):
+        # A choice item: approving as is means choosing the default, stored explicitly so the trail shows it.
+        action, value = m.ReviewDecision.APPROVE_WITH_VALUE, {"location": record.context["default"]}
     if action == m.ReviewDecision.APPROVE:
         value = None
     elif action == m.ReviewDecision.APPROVE_WITH_VALUE:

@@ -1,0 +1,6 @@
+{% load payroll_ui %}<div class="diagnosis">
+  <p class="diagnosis-value">{{ d.column }} <code class="mono bad-value">{{ d.value|mark_chars:d.marks }}</code> can't be read:</p>
+  <ul class="diagnosis-reasons">{% for reason in d.reasons %}<li>{{ reason }}</li>{% endfor %}</ul>
+  {% if d.suggestion %}<p class="diagnosis-suggestion">Did you mean <code class="mono">{{ d.suggestion }}</code>?</p>{% endif %}
+  <p class="muted small">Expected format: <code class="mono">{{ d.expected }}</code></p>
+</div>

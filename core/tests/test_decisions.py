@@ -57,13 +57,18 @@ def test_undo_restores_the_original_amount(period):
     assert exc(period, E03_KEY).status == "open"
 
 
-def test_reclassifying_uninformed_absence_as_paid_leave(period):
-    before = line(period, "E07")
-    assert (before.absence_deductions, before.penalties) == (D("220.00"), D("25.00"))
-    services.decide(period, E07_KEY, "approve_with_value", {"leave_type": "sick"}, "called in sick")
-    after = line(period, "E07")
-    assert (after.absence_deductions, after.penalties) == (D("0.00"), D("0.00"))
-    assert after.gross - before.gross == D("220.00")
+@pytest.mark.parametrize("key, action, value, message", [
+    ("LATE_ARRIVAL|E02|2026-09-14|A", "approve", None, "follow up with the employee"),
+    ("LATE_ARRIVAL|E02|2026-09-14|A", "approve_with_value", {"leave": "paid"}, "follow up with the employee"),
+    (E07_KEY, "approve", None, "follow up with the employee"),  # only "record as leave" is offered
+    (E07_KEY, "approve_with_value", {"leave": "sick"}, "Choose paid or unpaid leave"),
+])
+def test_attendance_items_need_no_decision(period, key, action, value, message):
+    assert exc(period, key).severity == "attendance"
+    with pytest.raises(services.DecisionError, match=message):
+        services.decide(period, key, action, value)
+    assert not ReviewDecision.objects.exists()
+    assert line(period, "E07").absence_deductions == D("220.00")  # the day's pay is still deducted
 
 
 def test_loan_capped_rejects_amount_above_installment(period):
@@ -77,7 +82,6 @@ def test_loan_capped_rejects_amount_above_installment(period):
 @pytest.mark.parametrize("key, value, message", [
     (E03_KEY, {"hours": "25"}, "between 0 and 24"),
     (E03_KEY, {"hours": "abc"}, "number"),
-    (E07_KEY, {"leave_type": "holiday"}, "not a leave type"),
     ("WRONG_LOCATION|E10|2026-09-16|B", {"location": "C"}, "no pay rate"),
     ("EXIT_FINAL_SETTLEMENT|E13|2026-09-11|", {}, "only be approved as is"),
 ])
@@ -101,10 +105,10 @@ def test_approve_as_is_keeps_the_engine_result(period):
 
 def test_clear_decisions_resets_everything(period):
     services.decide(period, E03_KEY, "approve_with_value", {"hours": "8"})
-    services.decide(period, E07_KEY, "approve")
+    services.decide(period, E16_KEY, "approve")
     services.clear_decisions(period)
     assert not ReviewDecision.objects.exists()
-    assert services.current_run(period).exceptions.filter(severity="needs_review", status="open").count() == 7
+    assert services.current_run(period).exceptions.filter(severity="needs_review", status="open").count() == 6
 
 
 def test_raw_rows_are_kept_with_parse_errors(period):

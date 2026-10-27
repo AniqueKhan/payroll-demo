@@ -28,6 +28,7 @@
   <p class="small muted">
     {% if filtered %}Showing {{ lines|length }} of {{ total_count }} employees. {% endif %}
     Deductions = penalties + loans and advances + custom deductions. Absence deductions are already taken out of gross.
+    Net before taxes = gross - deductions.
     {% if sort == "gross" %}<a href="?{% if q %}q={{ q|urlencode }}&amp;{% endif %}{% if store %}store={{ store }}{% endif %}">Sort by employee</a>{% else %}<a href="?sort=gross{% if q %}&amp;q={{ q|urlencode }}{% endif %}{% if store %}&amp;store={{ store }}{% endif %}">Sort by gross</a>{% endif %}
   </p>
   <div class="table-wrap">
@@ -37,7 +38,7 @@
           <th>Employee</th><th>Home store</th><th>Pay type</th>
           <th class="num">Reg. hours</th><th class="num">OT hours</th>
           <th class="num">Regular pay</th><th class="num">OT pay</th><th class="num">Add-ons</th>
-          <th class="num">Deductions</th><th class="num">Gross</th><th class="num">Net</th><th>Exceptions</th>
+          <th class="num">Deductions</th><th class="num">Gross</th><th class="num">Net before taxes</th><th>Exceptions</th>
         </tr>
       </thead>
       <tbody>
@@ -78,6 +79,7 @@
       </tfoot>
     </table>
   </div>
+  <p class="tax-note small">Federal, state and payroll tax withholding is calculated by your payroll provider (for example ADP, Gusto or Paychex). This system prepares checked, ready-to-run numbers for it.</p>
 </section>
 {% endblock %}
 

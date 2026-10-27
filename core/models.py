@@ -149,6 +149,8 @@ class RawImportRow(models.Model):
     row_number = models.PositiveIntegerField()  # line number in the file (header is 1)
     raw = models.JSONField()  # {column: value as exported}
     parse_error = models.TextField(blank=True, default="")
+    # Why each unreadable value couldn't be read: [{column, value, reasons, marks, suggestion, expected}]
+    diagnosis = models.JSONField(default=list, blank=True)
     # False for rows that belong to another pay period (exports spill a day past both edges).
     in_period = models.BooleanField(default=True)
 
@@ -223,7 +225,7 @@ class PayrollLineRecord(models.Model):
     loan_deductions = models.DecimalField(max_digits=12, decimal_places=2)
     custom_deductions = models.DecimalField(max_digits=12, decimal_places=2)
     gross = models.DecimalField(max_digits=12, decimal_places=2)
-    net = models.DecimalField(max_digits=12, decimal_places=2)
+    net = models.DecimalField("net before taxes", max_digits=12, decimal_places=2)
     hours = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     overtime_hours = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     by_location = models.JSONField(default=dict)
@@ -243,11 +245,12 @@ class PayrollLineRecord(models.Model):
 
     def __str__(self):
         return (f"{self.employee} · {self.run.period.short_label} · gross {labels.money(self.gross)} · "
-                f"net {labels.money(self.net)}")
+                f"net before taxes {labels.money(self.net)}")
 
 
 class PayrollExceptionRecord(models.Model):
-    SEVERITIES = [("info", "Info"), ("needs_review", "Needs review"), ("blocking", "Blocking")]
+    SEVERITIES = [("info", "Info"), ("needs_review", "Needs review"), ("blocking", "Blocking"),
+                  ("attendance", "Attendance to discuss")]
     OPEN, APPROVED, OVERRIDDEN = "open", "approved", "overridden"
     STATUSES = [(OPEN, "Open"), (APPROVED, "Approved"), (OVERRIDDEN, "Overridden")]
 
@@ -329,8 +332,8 @@ class ReviewDecision(models.Model):
             what = f"{value['hours']} h"
         elif "location" in value:
             what = f"Store {value['location']}"
-        elif "leave_type" in value:
-            what = f"{value['leave_type']} leave"
+        elif "leave" in value:
+            return f"recorded as {value['leave']} leave"
         elif "amount" in value:
             what = labels.money(value["amount"])
         else:

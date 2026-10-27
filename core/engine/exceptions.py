@@ -10,9 +10,12 @@ from typing import Optional
 from .types import PayrollException
 
 INFO = "info"
+# Attendance to discuss: a manager follows up with the employee. Never a pay decision, never blocks finalizing,
+# not counted with needs_review or info.
+ATTENDANCE = "attendance"
 NEEDS_REVIEW = "needs_review"
 BLOCKING = "blocking"
-SEVERITIES = (INFO, NEEDS_REVIEW, BLOCKING)
+SEVERITIES = (INFO, NEEDS_REVIEW, BLOCKING, ATTENDANCE)
 
 # code -> (default severity, short description)
 CODES: dict[str, tuple[str, str]] = {
@@ -31,10 +34,11 @@ CODES: dict[str, tuple[str, str]] = {
     "ODD_PUNCH_COUNT": (NEEDS_REVIEW, "Odd number of punches, cannot pair"),
     "OVERNIGHT_SHIFT": (INFO, "Shift crosses midnight"),
     # Attendance (scenarios 7-9, 11)
-    "LATE_ARRIVAL": (INFO, "Late arrival penalty applied"),
+    "LATE_ARRIVAL": (ATTENDANCE, "Late arrival"),
     "HALF_DAY": (INFO, "Half day deduction applied"),
+    "PARTIAL_DAY": (ATTENDANCE, "Partial day"),
     "ABSENCE_INFORMED": (INFO, "Absence covered by a leave record"),
-    "ABSENCE_UNINFORMED": (NEEDS_REVIEW, "Absence without a leave record"),
+    "ABSENCE_UNINFORMED": (ATTENDANCE, "Absence without notice"),
     "UNKNOWN_LEAVE_TYPE": (NEEDS_REVIEW, "Leave type not in rules"),
     "WRONG_LOCATION": (NEEDS_REVIEW, "Shift punched at a different store than scheduled"),
     "UNSCHEDULED_SHIFT": (NEEDS_REVIEW, "Shift worked with no schedule"),
@@ -49,7 +53,7 @@ CODES: dict[str, tuple[str, str]] = {
     "NEW_HIRE_PRORATED": (INFO, "Salary prorated from hire date"),
     "EXIT_FINAL_SETTLEMENT": (NEEDS_REVIEW, "Exit: final settlement needs review"),
     "CUSTOM_RULE_APPLIED": (INFO, "Custom deduction rule applied"),
-    "NEGATIVE_NET": (BLOCKING, "Net pay is negative"),
+    "NEGATIVE_NET": (BLOCKING, "Net before taxes is negative"),
 }
 
 

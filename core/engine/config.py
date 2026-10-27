@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import copy
+import re
 from dataclasses import dataclass
+from datetime import time
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -30,6 +32,12 @@ class Rules:
     @property
     def week_start(self) -> int:
         return WEEKDAYS.index(self.raw["period"]["week_start"][:3].lower())
+
+    @property
+    def week_start_time(self) -> time:
+        """When each workweek starts on ``week_start`` day, for counting overtime. Validated in ``validate``."""
+        hours, minutes = str(self.raw.get("week_start_time", "00:00")).split(":")
+        return time(int(hours), int(minutes))
 
     @property
     def ot_threshold(self) -> Decimal:
@@ -68,8 +76,18 @@ class Rules:
         return to_decimal(self.raw["half_day"]["threshold_fraction"])
 
     @property
+    def salaried_partial_day_deduction(self) -> bool:
+        """Deduct half a day from exempt salaried pay for a partial day (off by default)."""
+        return bool(self.raw.get("salaried_partial_day_deduction", False))
+
+    @property
     def standard_workdays(self) -> set[int]:
         return {WEEKDAYS.index(d[:3].lower()) for d in self.raw["absence"]["standard_workdays"]}
+
+    @property
+    def attendance_penalties_enabled(self) -> bool:
+        """Late and uninformed-absence penalties are only charged when switched on (off by default)."""
+        return bool(self.raw.get("attendance_penalties_enabled", False))
 
     @property
     def uninformed_penalty(self) -> Decimal:
@@ -118,6 +136,11 @@ class Rules:
             raise RulesError("Only the 'weighted_average' overtime method is supported")
         if self.period_length_days % 7:
             raise RulesError("Period length must be a whole number of weeks")
+        start = self.raw.get("week_start_time", "00:00")
+        m = re.fullmatch(r"(\d{2}):(\d{2})", start) if isinstance(start, str) else None
+        if not m or int(m.group(1)) > 23 or int(m.group(2)) > 59:
+            raise RulesError(f"week_start_time must be a time of day between \"00:00\" and \"23:59\", written "
+                             f"HH:MM in quotes (for example \"06:00\"), not {start!r}")
         from .custom_rules import validate_rule
 
         for rule in self.custom_rules:

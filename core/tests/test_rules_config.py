@@ -11,18 +11,19 @@ from core.engine.run import run_payroll
 def test_late_penalty_comes_from_rules_file(inputs, result, tmp_path):
     raw = yaml.safe_load(DEFAULT_RULES_PATH.read_text())
     raw["late"]["penalty_per_late"] = "7.50"
+    raw["attendance_penalties_enabled"] = True
     edited = tmp_path / "rules.yaml"
     edited.write_text(yaml.safe_dump(raw))
 
     changed = run_payroll(inputs, load_rules(edited))
     before, after = result.line_for("E02"), changed.line_for("E02")
-    assert (before.penalties, after.penalties) == (D("5.00"), D("7.50"))
-    assert after.net == before.net - D("2.50")
+    assert (before.penalties, after.penalties) == (D("0.00"), D("7.50"))  # penalties are off by default
+    assert after.net == before.net - D("7.50")
 
 
 def test_grace_period_comes_from_rules(inputs, rules):
     # E05 clocked in 6 minutes late: inside a 10 minute grace, outside a 5 minute one.
-    res = run_payroll(inputs, rules.with_changes(**{"late.grace_minutes": 5}))
+    res = run_payroll(inputs, rules.with_changes(**{"late.grace_minutes": 5, "attendance_penalties_enabled": True}))
     assert res.exceptions_for("LATE_ARRIVAL", "E05")
     assert res.line_for("E05").penalties == D("5.00")
 

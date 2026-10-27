@@ -27,14 +27,20 @@
   </div>
   {% endif %}
 {% endif %}
+{% if attendance_count %}
+  <p class="attendance-link"><a href="{% url 'core:exceptions' %}#attendance"><span class="pill pill-attendance">Attendance to discuss</span>
+    {{ attendance_count }} attendance item{{ attendance_count|pluralize }} to discuss</a>
+    <span class="muted small">They don't change pay or block finalizing.</span></p>
+{% endif %}
 
 <section class="grid stats">
   <div class="stat"><span class="stat-label">Period</span><span class="stat-value small">{{ period.start_date|date:"M j" }} – {{ period.end_date|date:"M j, Y" }}</span></div>
   <div class="stat"><span class="stat-label">Status</span><span class="stat-value small">{% if is_final %}Finalized{% else %}Draft{% endif %}</span></div>
   <div class="stat"><span class="stat-label">Employees</span><span class="stat-value">{{ totals.employees }}</span></div>
   <div class="stat"><span class="stat-label">Total gross</span><span class="stat-value num">{{ totals.gross|money }}</span></div>
-  <div class="stat"><span class="stat-label">Total net</span><span class="stat-value num">{{ totals.net|money }}</span></div>
+  <div class="stat"><span class="stat-label">Total net before taxes</span><span class="stat-value num">{{ totals.net|money }}</span></div>
 </section>
+<p class="tax-note small">Federal, state and payroll tax withholding is calculated by your payroll provider (for example ADP, Gusto or Paychex). This system prepares checked, ready-to-run numbers for it.</p>
 
 <div class="grid two">
   <section class="card">

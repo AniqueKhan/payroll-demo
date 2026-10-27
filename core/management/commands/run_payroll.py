@@ -31,7 +31,7 @@ class Command(BaseCommand):
         out.write(self.style.MIGRATE_HEADING(f"Payroll run {run.pk} for {pay_period} ({run.status})"))
         totals = run.totals
         out.write(f"Employees: {totals['employees']}  Gross: {fmt_money(totals['gross'])}  "
-                  f"Net: {fmt_money(totals['net'])}")
+                  f"Net before taxes: {fmt_money(totals['net'])}")
 
         out.write(self.style.MIGRATE_HEADING("\nTotals per store"))
         names = dict(m.Location.objects.values_list("code", "name"))
@@ -42,11 +42,13 @@ class Command(BaseCommand):
         severities = Counter(run.exceptions.values_list("severity", flat=True))
         for sev in ("blocking", "needs_review", "info"):
             out.write(f"  {sev:<13} {severities.get(sev, 0)}")
+        out.write(f"  {'attendance':<13} {severities.get('attendance', 0)}  (to discuss; never blocks finalizing)")
         out.write(self.style.MIGRATE_HEADING("\nExceptions"))
         for x in run.exceptions.select_related("employee", "location").order_by("id"):
             who = x.employee.employee_id if x.employee else "-"
             style = {"blocking": self.style.ERROR, "needs_review": self.style.WARNING}.get(x.severity, str)
-            out.write(style(f"  [{x.severity}] {x.code} {who} {x.date or ''}: {x.message}"))
+            count = f" ({x.context['occurrence_label']})" if x.context.get("occurrence_label") else ""
+            out.write(style(f"  [{x.severity}] {x.code} {who} {x.date or ''}: {x.message}{count}"))
 
         if run.file_notes:
             out.write(self.style.MIGRATE_HEADING("\nFile notes (not exceptions)"))
@@ -56,7 +58,7 @@ class Command(BaseCommand):
         out.write(self.style.MIGRATE_HEADING(f"\nTop {top} lines by gross"))
         for line in run.lines.select_related("employee").order_by("-gross")[:top]:
             out.write(f"\n  {line.employee.employee_id} {line.employee.name}: gross {fmt_money(line.gross)}, "
-                      f"net {fmt_money(line.net)}")
+                      f"net before taxes {fmt_money(line.net)}")
             for step in line.trail:
                 if (step.get("refs") or {}).get("step") != "shift":
                     out.write(f"    - {step['label']}: {step['formula']}")

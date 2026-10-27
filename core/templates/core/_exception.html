@@ -1,7 +1,7 @@
 {% load payroll_ui %}{% with x=item.record %}
 <article class="exc exc-{{ x.severity }}{% if x.status != 'open' %} exc-approved{% endif %}" id="{{ item.anchor }}">
   <header class="exc-head">
-    <h3>{{ item.title }}</h3>
+    <h3>{{ item.title }}{% if x.context.occurrence_label %} <span class="occurrence">· {{ x.context.occurrence_label }}</span>{% endif %}</h3>
     <span class="pill pill-{{ x.severity }}{% if x.severity == 'needs_review' and x.status != 'open' %} pill-approved{% endif %}">
       {% if x.severity == 'needs_review' and x.status != 'open' %}Approved{% else %}{{ x.severity|severity_label }}{% endif %}
     </span>
@@ -12,6 +12,7 @@
     {% if x.date %} · {{ x.date|date:"D M j" }}{% endif %}
   </p>
   <p class="exc-msg">{{ x.message }}</p>
+  {% for d in x.context.diagnosis %}{% include "core/_diagnosis.html" %}{% endfor %}
   {% if x.resolution %}<p class="exc-res"><span class="muted">Resolution:</span> {{ x.resolution }}</p>{% endif %}
 
   {% if item.rows %}
@@ -35,14 +36,23 @@
       <input type="hidden" name="exception_key" value="{{ x.exception_key }}">
       <div class="fields">
         {% if item.value_kind == "hours" %}
+          {% if x.context.suggested_blocks %}
+          <p class="suggestion small">Suggested pairing:
+            {% for block, h in x.context.suggested_blocks %}<span class="mono">{{ block }}</span> ({{ h }} h){% if not forloop.last %} + {% endif %}{% endfor %}
+            = <strong>{{ x.context.suggested_hours }} h</strong></p>
+          {% endif %}
           <label>Hours worked <input type="number" name="hours" min="0" max="24" step="0.01" value="{{ item.default }}" inputmode="decimal"></label>
+        {% elif item.value_kind == "location" and item.choices %}
+          <fieldset class="choices">
+            <legend>Where was this shift worked?</legend>
+            {% for code, label in item.choices %}
+              <label class="choice"><input type="radio" name="location" value="{{ code }}" {% if code == item.default %}checked{% endif %}>
+                {{ label }}{% if code == item.default %} <span class="muted small">(default)</span>{% endif %}</label>
+            {% endfor %}
+          </fieldset>
         {% elif item.value_kind == "location" %}
           <label>Pay at store
             <select name="location">{% for code in item.stores %}<option value="{{ code }}" {% if code == item.default %}selected{% endif %}>Store {{ code }}{% if code == item.default %} (scheduled){% endif %}</option>{% endfor %}</select>
-          </label>
-        {% elif item.value_kind == "leave_type" %}
-          <label>Reclassify as leave
-            <select name="leave_type">{% for lt in leave_types %}<option value="{{ lt }}">{{ lt }}</option>{% endfor %}</select>
           </label>
         {% elif item.value_kind == "amount" %}
           <label>Deduction ($) <input type="number" name="amount" min="0" max="{{ x.context.installment }}" step="0.01" value="{{ item.default }}" inputmode="decimal"></label>
@@ -51,23 +61,54 @@
         <label class="note">Note <input type="text" name="note" maxlength="300" placeholder="Why (optional)"></label>
       </div>
       <div class="actions">
+        {% if not item.choices %}
         <button class="btn btn-secondary" type="submit" name="action" value="approve">
           {% if x.code == "EXIT_FINAL_SETTLEMENT" %}Acknowledge{% else %}Approve as is{% endif %}
         </button>
+        {% endif %}
         {% if item.value_kind %}
           <button class="btn" type="submit" name="action" value="approve_with_value">
-            {% if item.value_kind == "hours" %}Approve with these hours{% elif item.value_kind == "location" %}Approve with this store{% elif item.value_kind == "leave_type" %}Reclassify as leave{% else %}Approve with this amount{% endif %}
+            {% if item.value_kind == "hours" %}Approve with these hours{% elif item.value_kind == "location" and item.choices %}Confirm where it was worked{% elif item.value_kind == "location" %}Approve with this store{% else %}Approve with this amount{% endif %}
           </button>
         {% endif %}
       </div>
     </form>
+  {% elif x.severity == "attendance" and item.value_kind == "leave" and x.status == "open" and not is_final %}
+    <form class="decide decide-optional" method="post" action="{% url 'core:decide' %}">
+      {% csrf_token %}
+      <input type="hidden" name="exception_key" value="{{ x.exception_key }}">
+      <input type="hidden" name="action" value="approve_with_value">
+      <p class="muted small">Optional. If the absence turns out to be leave, record it here. It never blocks finalizing.</p>
+      <div class="fields">
+        <label>Record as
+          <select name="leave">
+            <option value="paid" selected>Paid leave (no deduction for the day)</option>
+            <option value="unpaid">Unpaid leave (the day isn't paid)</option>
+          </select>
+        </label>
+        <label class="note">Note <input type="text" name="note" maxlength="300" placeholder="Why (optional)"></label>
+      </div>
+      <div class="actions"><button class="btn btn-secondary" type="submit">Record as leave</button></div>
+    </form>
+  {% elif x.severity == "attendance" and item.decision %}
+    <div class="decision">
+      <p><strong>Recorded as {{ item.decision.value.leave }} leave</strong>
+        <span class="muted small">· {{ item.decision.decided_at|date:"M j, H:i" }}</span></p>
+      {% if item.decision.note %}<p class="muted">Note: {{ item.decision.note }}</p>{% endif %}
+      {% if not is_final %}
+      <form method="post" action="{% url 'core:undo' %}">
+        {% csrf_token %}
+        <input type="hidden" name="exception_key" value="{{ x.exception_key }}">
+        <button class="btn btn-link" type="submit">Undo</button>
+      </form>
+      {% endif %}
+    </div>
   {% elif x.severity == "needs_review" and item.decision %}
     <div class="decision">
       <p><strong>{% if item.decision.action == "approve_with_value" %}Approved with value{% else %}Approved as is{% endif %}</strong>
         {% if item.decision.value %}:
           {% if item.decision.value.hours %}{{ item.decision.value.hours }} h{% endif %}
-          {% if item.decision.value.location %}Store {{ item.decision.value.location }}{% endif %}
-          {% if item.decision.value.leave_type %}{{ item.decision.value.leave_type }} leave{% endif %}
+          {% if item.decision.value.location %}{% for code, label in item.choices %}{% if code == item.decision.value.location %}{{ label }}{% endif %}{% empty %}Store {{ item.decision.value.location }}{% endfor %}{% endif %}
           {% if item.decision.value.amount %}{{ item.decision.value.amount|money }}{% endif %}
         {% endif %}
         <span class="muted small">· {{ item.decision.decided_at|date:"M j, H:i" }}</span>

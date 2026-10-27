@@ -27,10 +27,10 @@ def approve_all(period, skip=0):
     return run
 
 
-def test_seeded_run_has_seven_items_to_review(period):
+def test_seeded_run_has_six_items_to_review(period):
     run = services.current_run(period)
-    assert needs_review(run).filter(status="open").count() == 7
-    assert run.exceptions.filter(severity="needs_review").exclude(exception_key="").count() == 7
+    assert needs_review(run).filter(status="open").count() == 6
+    assert run.exceptions.filter(severity="needs_review").exclude(exception_key="").count() == 6
 
 
 def test_finalize_blocked_while_needs_review_is_open(period):
@@ -42,13 +42,15 @@ def test_finalize_blocked_while_needs_review_is_open(period):
     assert run.status == PayrollRun.DRAFT
 
 
-def test_finalize_only_after_all_seven_have_decisions_and_locks_until_reopened(period):
+def test_finalize_only_after_all_six_have_decisions_and_locks_until_reopened(period):
     run = services.current_run(period)
     with pytest.raises(services.FinalizeRefused):
         services.finalize(period)
     run = approve_all(period)
-    assert period.decisions.count() == 7
+    assert period.decisions.count() == 6
     assert set(needs_review(run).values_list("status", flat=True)) == {"approved"}
+    # The three attendance items have no decision and never block finalizing.
+    assert run.exceptions.filter(severity="attendance").count() == 3
     finalized = services.finalize(period)
     assert finalized.status == PayrollRun.FINALIZED and finalized.finalized_at is not None
 

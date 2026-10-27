@@ -40,7 +40,7 @@ def test_readable_examples(seeded):
         return str(model.objects.get(**kw))
 
     assert one(PayrollLineRecord, run__sandbox=None, employee__employee_id="E07") == \
-        "E07 Harper Lane · Sep 7 to 20 · gross $1,980.00 · net $1,865.90"
+        "E07 Harper Lane · Sep 7 to 20 · gross $1,980.00 · net before taxes $1,890.90"
     assert one(ScheduledShift, employee__employee_id="E03", date="2026-09-10") == \
         "E03 Casey Lin · Store A · Thu Sep 10 · 09:00 to 17:00"
     assert one(LeaveRecord, employee__employee_id="E09") == "E09 Kai Bennett · Sep 14 · sick leave (paid)"

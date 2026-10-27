@@ -92,6 +92,13 @@ main { padding-bottom: 40px; }
 .pill-blocking { background: var(--red-soft); color: var(--red); border-color: #f1a9a0; }
 .pill-needs_review, .pill-open { background: var(--amber-soft); color: var(--amber); border-color: var(--amber-line); }
 .pill-approved, .pill-needs_review.pill-approved { background: var(--green-soft); color: var(--green); border-color: #9fd3b0; }
+.pill-attendance { background: #f1ecfb; color: #5b3e96; border-color: #d6c9f0; }
+tr.row-attendance td { background: #f7f3fd; }
+.exc-attendance { border-left-color: #8a6bc8; }
+.occurrence { display: inline-block; margin-left: 6px; font-size: .8rem; color: #5b3e96; }
+.attendance-link { margin: -6px 0 20px; }
+.attendance-link a { text-decoration: none; font-weight: 500; }
+.tax-note { color: var(--muted); margin: 0 0 20px; }
 .pill-info { background: var(--grey-soft); color: var(--grey); border-color: var(--line); }
 .badge { display: inline-block; min-width: 1.5em; padding: 0 6px; border-radius: 999px; font-size: .75rem; font-weight: 600; text-align: center; margin-left: 4px; }
 .badge-amber { background: #d99a00; color: #fff; }
@@ -121,6 +128,12 @@ tr.row-blocking td { background: var(--red-soft); }
 tr.row-needs_review td { background: var(--amber-soft); }
 tr.row-info td { background: #f6f8fa; }
 tr.row-malformed td:first-child { box-shadow: inset 4px 0 0 var(--red); }
+.bad-value { background: var(--red-soft); padding: 1px 5px; border-radius: 4px; white-space: pre; }
+.bad-value mark { background: var(--red); color: #fff; border-radius: 2px; padding: 0 1px; }
+.diagnosis { margin: 8px 0; padding: 8px 10px; border-left: 3px solid var(--red); background: #fff; }
+.diagnosis p { margin: 2px 0; }
+.diagnosis-reasons { margin: 4px 0 4px 18px; padding: 0; }
+.diagnosis-suggestion code { background: var(--green-soft); padding: 1px 5px; border-radius: 4px; }
 tr.row-target td { outline: 2px solid var(--accent); outline-offset: -2px; }
 .filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; margin-bottom: 12px; }
 .filters label { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; font-weight: 500; color: var(--muted); }
@@ -160,6 +173,11 @@ form.decide { border-top: 1px dashed var(--line); padding-top: 12px; margin-top:
 .fields { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: flex-end; margin-bottom: 12px; }
 .fields label { display: flex; flex-direction: column; gap: 4px; font-size: .85rem; font-weight: 500; color: var(--muted); }
 .fields label.note { flex: 1 1 260px; }
+.choices { border: 0; padding: 0; margin: 0; flex: 1 1 100%; display: flex; flex-direction: column; gap: 6px; }
+.choices legend { font-size: .85rem; font-weight: 600; color: var(--muted); margin-bottom: 4px; padding: 0; }
+.fields label.choice { flex-direction: row; align-items: baseline; gap: 8px; font-weight: 400; color: inherit; font-size: .95rem; }
+.suggestion { flex: 1 1 100%; margin: 0; color: var(--muted); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 input[type=text], input[type=number], select { font: inherit; color: var(--ink); padding: 8px 10px; border: 1px solid #c5cfd8; border-radius: 8px; background: #fff; min-width: 120px; }
 input:focus, select:focus, button:focus-visible, a:focus-visible { outline: 3px solid #9ccde2; outline-offset: 1px; }
 .actions { display: flex; flex-wrap: wrap; gap: 10px; }

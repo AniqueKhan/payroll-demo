@@ -35,7 +35,7 @@ def assert_departments_add_up(res):
 def test_department_totals_add_up_to_store_totals_and_gross(result):
     assert_departments_add_up(result)
     assert set(result.totals["by_department"]) == {"Checkout", "Floor", "Stockroom", "Unassigned"}
-    assert result.totals["gross"] == D("24341.99")
+    assert result.totals["gross"] == D("24466.49")
 
 
 def test_department_totals_add_up_with_extra_staff_and_stores(tmp_path, rules):
@@ -58,11 +58,10 @@ def test_export_without_a_department_column_is_unassigned(inputs, rules):
     without = "\n".join(",".join(row.split(",")[:2]) for row in lines) + "\n"
     res = run_payroll(replace(inputs, time_files={**inputs.time_files, "B": io.StringIO(without)}), rules)
     store_b = res.totals["by_location_department"]["B"]
-    # Everything punched at Store B is Unassigned. E10's shift punched at Store A (Floor) but paid at Store B
-    # (scenario 11) keeps the department of its clock-in row.
-    assert list(store_b) == ["Floor", "Unassigned"]
-    assert store_b["Floor"]["hours"] == D("8.00")
-    assert res.line_for("E10").by_department["B"]["Floor"]["hours"] == D("8.00")
+    # Everything punched at Store B is Unassigned. E10's shift scheduled at B but punched at Store A (Floor) is
+    # paid at Store A by default (scenario 11) and keeps the department of its clock-in row.
+    assert list(store_b) == ["Unassigned"]
+    assert res.line_for("E10").by_department["A"]["Floor"]["hours"] == D("8.00")
     assert not [n for n in res.notes if n.location_code == "B"]
 
 

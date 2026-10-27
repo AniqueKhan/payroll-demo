@@ -17,7 +17,7 @@ from core.models import (
 pytestmark = pytest.mark.django_db
 
 E03_KEY = "MISSED_CLOCK_OUT|E03|2026-09-10|A"
-BASE_GROSS = D("24341.99")
+BASE_GROSS = D("24466.49")
 
 
 @pytest.fixture
@@ -55,7 +55,7 @@ def page(client, name, **kw):
 
 def test_new_visitor_sees_the_baseline(client, period):
     overview = page(client, "overview")
-    assert "7 items need your review" in overview and "$24,341.99" in overview and "Clean demo" in overview
+    assert "6 items need your review" in overview and "$24,466.49" in overview and "Clean demo" in overview
     assert "E03" in page(client, "exceptions") and "Approve with these hours" in page(client, "exceptions")
 
 
@@ -75,7 +75,7 @@ def test_first_approval_creates_exactly_one_sandbox_and_changes_totals(client, p
     assert D(run.totals["gross"]) == BASE_GROSS + D("124.00")
     approve_e03(client, hours="7")  # a second action reuses the same sandbox
     assert DemoSandbox.objects.count() == 1
-    assert "$24,450.49" in page(client, "overview")  # 7 h x $15.50 = $108.50 over the baseline
+    assert "$24,574.99" in page(client, "overview")  # 7 h x $15.50 = $108.50 over the baseline
 
 
 def test_sandbox_run_starts_identical_to_the_baseline(period):
@@ -94,21 +94,21 @@ def test_sandbox_run_starts_identical_to_the_baseline(period):
 def test_two_visitors_are_isolated(period):
     a, b = Client(), Client()
     approve_e03(a)
-    assert "6 items need your review" in page(a, "overview")
+    assert "5 items need your review" in page(a, "overview")
 
     # B still sees E03 open and the original totals.
     overview_b = page(b, "overview")
-    assert "7 items need your review" in overview_b and "$24,341.99" in overview_b
+    assert "6 items need your review" in overview_b and "$24,466.49" in overview_b
     assert 'value="approve_with_value"' in page(b, "exceptions").split('id="exc-MISSED_CLOCK_OUT-E03')[1][:4000]
     assert "Reviewer adjustment" not in page(b, "employee", employee_id="E03")
 
     # B acts too: two sandboxes, each with only its own decision.
-    b.post(reverse("core:decide"), {"exception_key": "ABSENCE_UNINFORMED|E07|2026-09-17|B", "action": "approve"})
+    b.post(reverse("core:decide"), {"exception_key": "EXIT_FINAL_SETTLEMENT|E13|2026-09-11|", "action": "approve"})
     assert DemoSandbox.objects.count() == 2
     assert list(sandbox_of(a).decisions.values_list("exception_key", flat=True)) == [E03_KEY]
     assert list(sandbox_of(b).decisions.values_list("exception_key", flat=True)) == [
-        "ABSENCE_UNINFORMED|E07|2026-09-17|B"]
-    assert "6 items need your review" in page(a, "overview") and "6 items need your review" in page(b, "overview")
+        "EXIT_FINAL_SETTLEMENT|E13|2026-09-11|"]
+    assert "5 items need your review" in page(a, "overview") and "5 items need your review" in page(b, "overview")
     assert D(services.current_run(period, sandbox_of(b)).totals["gross"]) == BASE_GROSS
 
 
@@ -150,7 +150,7 @@ def test_start_over_returns_to_the_baseline(client, period):
     sandbox_id = sandbox_of(client).pk
     r = client.post(reverse("core:start_over"), follow=True)
     html = r.content.decode()
-    assert "Started over" in html and "7 items need your review" in html and "Clean demo" in html
+    assert "Started over" in html and "6 items need your review" in html and "Clean demo" in html
     assert "sandbox_id" not in client.session
     assert not DemoSandbox.objects.filter(pk=sandbox_id).exists()
     assert not PayrollRun.objects.filter(sandbox_id=sandbox_id).exists()
@@ -179,10 +179,10 @@ def test_session_pointing_to_a_deleted_sandbox_is_a_new_visitor(client, period):
     approve_e03(client)
     sandbox_of(client).delete()  # e.g. removed by cleanup_sandboxes
     overview = page(client, "overview")
-    assert "7 items need your review" in overview and "Clean demo" in overview
+    assert "6 items need your review" in overview and "Clean demo" in overview
     approve_e03(client)  # acting again creates a fresh sandbox
     assert DemoSandbox.objects.count() == 1
-    assert "6 items need your review" in page(client, "overview")
+    assert "5 items need your review" in page(client, "overview")
 
 
 def test_last_seen_is_updated_on_post_not_on_get(client, period):
@@ -224,5 +224,5 @@ def test_management_run_payroll_works_on_the_baseline(period):
     sandbox = services.create_sandbox(period)
     services.decide(period, E03_KEY, "approve", sandbox=sandbox)
     call_command("run_payroll", "--period", "2026-09-07", stdout=StringIO())
-    assert services.current_run(period).exceptions.filter(severity="needs_review", status="open").count() == 7
+    assert services.current_run(period).exceptions.filter(severity="needs_review", status="open").count() == 6
     assert services.current_run(period, sandbox).exceptions.filter(status="approved").count() == 1

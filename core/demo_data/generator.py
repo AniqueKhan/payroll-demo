@@ -238,6 +238,8 @@ def build_schedules(plan: Plan, employees: list[dict]) -> list[dict]:
                 add(eid, "B", day, "10:00", "16:00")  # scenario 12
             elif eid == "E15" and day < d(7):
                 add(eid, home, day, "09:00", "18:00")  # scenario 14: 45 h week
+            elif eid == "E05" and day == d(9):
+                continue  # scenario 21: a 4-day week 2 (Wednesday off)
             elif eid == "E18" and day in (d(3), d(4)):
                 add(eid, "A", day, "09:00", "17:00")  # works two stores, no overtime
             else:
@@ -248,6 +250,8 @@ def build_schedules(plan: Plan, employees: list[dict]) -> list[dict]:
     # Boundary: overnight shift starting on the period's last day (Sunday), ending the morning after.
     # E09 has sick leave that Monday, so the week stays under 40 worked hours.
     add("E09", "B", d(plan.length_days - 1), "22:00", "06:00")
+    # Scenario 21: an overnight shift from the last Sunday of week 1 into the Monday of week 2.
+    add("E05", "A", d(6), "22:00", "06:00")
     rows.sort(key=lambda r: (r["date"], r["employee_id"]))
     return rows
 
@@ -298,21 +302,24 @@ def apply_scenarios(plan: Plan, shifts: list[dict]) -> tuple[list[dict], dict]:
     record(4, "E03", d(3), "A", code="MISSED_CLOCK_OUT", scheduled_hours="8.00")
     # 5: odd number of punches at store B (back from lunch, never clocked out)
     find("E08", d(2))["extra_punches"] = [at(2, "09:00"), at(2, "13:00"), at(2, "13:30")]
-    record(5, "E08", d(2), "B", code="ODD_PUNCH_COUNT", punches=3)
+    record(5, "E08", d(2), "B", code="ODD_PUNCH_COUNT", punches=3, suggested_hours="7.50",
+           suggested_blocks=[["09:00-13:00", "4.00"], ["13:30-17:00", "3.50"]])
     # 6: overnight shift (already scheduled 22:00-06:00)
     record(6, "E04", d(4), "A", code="OVERNIGHT_SHIFT", hours="8.00")
     # 7: late beyond grace, and late within grace
     find("E02", d(7))["in"] = at(7, "09:30")
-    record(7, "E02", d(7), "A", code="LATE_ARRIVAL", minutes_late=30, penalty="5.00")
+    record(7, "E02", d(7), "A", code="LATE_ARRIVAL", severity="attendance", minutes_late=30, penalty="0.00",
+           penalty_when_enabled="5.00")
     find("E05", d(8))["in"] = at(8, "09:06")
     record(7, "E05", d(8), "A", code=None, minutes_late=6, penalty="0.00", note="within grace")
-    # 8: salaried half day
+    # 8: salaried partial day (exempt pay is not reduced unless salaried_partial_day_deduction is on)
     find("E01", d(2))["out"] = at(2, "11:30")
-    record(8, "E01", d(2), "A", code="HALF_DAY", deduction="100.00")
+    record(8, "E01", d(2), "A", code="PARTIAL_DAY", severity="attendance", worked="3.50", scheduled="9.00",
+           deduction="0.00", code_when_enabled="HALF_DAY", deduction_when_enabled="100.00")
     # 9: absences: uninformed (salaried), informed paid (hourly), informed unpaid (hourly)
     remove("E07", d(10))
-    record(9, "E07", d(10), "B", code="ABSENCE_UNINFORMED", severity="needs_review", deduction="220.00",
-           penalty="25.00")
+    record(9, "E07", d(10), "B", code="ABSENCE_UNINFORMED", severity="attendance", deduction="220.00",
+           penalty="0.00", penalty_when_enabled="25.00")
     remove("E09", d(7))
     record(9, "E09", d(7), "B", code="ABSENCE_INFORMED", severity="info", leave_type="sick", leave_pay="124.00")
     remove("E17", d(9))
@@ -320,9 +327,11 @@ def apply_scenarios(plan: Plan, shifts: list[dict]) -> tuple[list[dict], dict]:
     # 10: two stores, one week (same rate)
     record(10, "E06", d(0), None, code="MULTI_LOCATION_OVERTIME", week=1, hours={"A": "32.00", "B": "12.00"},
            ot_hours="4.00", premium="32.00")
-    # 11: worked at store A while scheduled at store B
+    # 11: worked at store A while scheduled at store B: paid at A (where they clocked in) unless the reviewer
+    # says it was B
     find("E10", d(9))["location"] = "A"
-    record(11, "E10", d(9), "B", code="WRONG_LOCATION", punched_at="A", pay="128.00")
+    record(11, "E10", d(9), "B", code="WRONG_LOCATION", punched_at="A", paid_at="A", pay="136.00",
+           pay_if_scheduled_store="128.00", difference="8.00")
     # 12: different rate per store, with overtime
     record(12, "E11", d(7), None, code="BLENDED_RATE_OVERTIME", week=2, weighted_rate="16.55",  # display only
            ot_hours="4.00", premium="33.09")
@@ -350,6 +359,10 @@ def apply_scenarios(plan: Plan, shifts: list[dict]) -> tuple[list[dict], dict]:
                    "out": at(0, "06:00"), "edge": True})
     record(19, "E12", d(-1), "B", code=None, hours="0.00",
            note="starts the evening before the period: belongs to the previous payroll, not counted or shown")
+    # 21: overtime split at the workweek boundary (week_start_time "00:00"): 2 h in week 1, 6 h in week 2
+    record(21, "E05", d(6), "A", code="OVERNIGHT_SHIFT", hours="8.00", week_1_hours="2.00", week_2_hours="6.00",
+           ot_hours="2.00", premium="16.50", ot_hours_unsplit="8.00", premium_unsplit="66.00",
+           note="Sun 22:00 to Mon 06:00, week 2 has 4 days: split 42 h + 37.9 h, 2 h OT (8 h OT if not split)")
     # 20: labor cost by department (taken from the clock-in row; blank = Unassigned)
     record(20, "E06", None, None, code=None, departments={"A": ["Floor"], "B": ["Stockroom"]})
     record(20, "E15", None, "C", code=None, departments={"C": ["Checkout", "Floor"]},

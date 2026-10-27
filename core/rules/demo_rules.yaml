@@ -9,6 +9,11 @@ period:
   length_days: 14
   week_start: monday
 
+# The moment each workweek starts on week_start day, for counting overtime. A shift that crosses it (an
+# overnight shift from Sunday into Monday) has its hours split between the two workweeks; the shift is still
+# paid on the day it started. Write it in quotes with a two-digit hour: "06:00" (YAML reads 6:00 as 360).
+week_start_time: "00:00"
+
 # Every store in the demo data must deliver a time clock export every period (scenario 2); a store
 # with no export is a blocking STORE_FILE_MISSING. The list of stores comes from the seeded locations.
 
@@ -24,17 +29,26 @@ punch_pairing:
   max_shift_hours: 16             # IN/OUT further apart than this are not paired
   cluster_gap_hours: 12           # exports without IN/OUT: a gap this long starts a new work day
 
+# Attendance penalties (late arrivals, absences without notice) are off by default: the items still show
+# under "Attendance to discuss". Switch on to charge the amounts below.
+attendance_penalties_enabled: false
+
 late:
   grace_minutes: 10
-  penalty_per_late: "5.00"
+  penalty_per_late: "5.00"           # charged only when attendance_penalties_enabled is true
+
+# Exempt salaried staff can't have partial-day absences deducted from their pay. By default a short day
+# (worked < half_day.threshold_fraction of the scheduled hours) is an attendance item to discuss, with no
+# deduction. Switch on to deduct half a day instead.
+salaried_partial_day_deduction: false
 
 half_day:
-  threshold_fraction: "0.5"       # salaried: worked < 50% of scheduled hours -> deduct half a day
+  threshold_fraction: "0.5"       # salaried: worked < 50% of scheduled hours is a partial day
 
 absence:
   # Salaried daily rate = salary_per_period / scheduled working days in the period
   standard_workdays: [mon, tue, wed, thu, fri]
-  uninformed_penalty: "25.00"
+  uninformed_penalty: "25.00"         # charged only when attendance_penalties_enabled is true
 
 leave_types:
   - {code: sick, paid: true}

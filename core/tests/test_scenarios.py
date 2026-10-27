@@ -48,7 +48,7 @@ def test_01_unknown_column_is_a_file_note_not_an_exception(result, scenario):
     assert (note.code, note.location_code, note.message) == ("UNKNOWN_COLUMN", s["location"], DEPT_NOTE)
     assert note.context == {"columns": ["Badge"]}
     assert not result.exceptions_for("UNKNOWN_COLUMN")
-    assert result.totals["exceptions_by_severity"] == {"needs_review": 7, "info": 15}
+    assert result.totals["exceptions_by_severity"] == {"needs_review": 6, "info": 14, "attendance": 3}
 
 
 def test_01_several_extra_columns_make_one_note(inputs):
@@ -192,9 +192,10 @@ def test_05_odd_punches_counted_zero_with_raw_punches(result, scenario):
     s = scenario(5)
     ex = only(result.exceptions_for("ODD_PUNCH_COUNT", s["employee"]))
     assert (ex.severity, ex.date, ex.location_code) == ("needs_review", s["date"], "B")
-    for raw in ("09:00", "13:00", "13:30"):
-        assert raw in ex.message
-    assert result.line_for(s["employee"]).regular_pay == D("1080.00")  # 72 h x $15.00
+    assert ex.message.startswith(f"{s['punches']} punches: 09:00, 13:00, 13:30.")
+    assert (ex.context["suggested_hours"], ex.context["suggested_blocks"]) == (s["suggested_hours"],
+                                                                               s["suggested_blocks"])
+    assert result.line_for(s["employee"]).regular_pay == D("1080.00")  # 72 h x $15.00: the day still counts 0 h
 
 
 # 6 -------------------------------------------------------------------------------------------
@@ -212,11 +213,12 @@ def test_06_overnight_shift_is_one_shift_on_start_date(result, scenario):
 
 # 7 -------------------------------------------------------------------------------------------
 
-def test_07_late_beyond_grace_is_penalized(result, scenario):
+def test_07_late_beyond_grace_is_an_attendance_item(result, scenario):
     s = scenario(7, code="LATE_ARRIVAL")
     ex = only(result.exceptions_for("LATE_ARRIVAL", s["employee"]))
-    assert (ex.severity, ex.date) == ("info", s["date"])
-    assert f"{s['minutes_late']} min late" in ex.message
+    assert (ex.severity, ex.date) == (s["severity"], s["date"])
+    assert f"{s['minutes_late']} minutes after" in ex.message
+    assert ex.context["occurrence_label"] == "1st late arrival this period"
     assert result.line_for(s["employee"]).penalties == D(s["penalty"])
 
 
@@ -230,12 +232,23 @@ def test_07_late_within_grace_is_not_penalized(result, scenario):
 
 # 8 -------------------------------------------------------------------------------------------
 
-def test_08_half_day_deducts_half_daily_rate(result, scenario):
+def test_08_salaried_partial_day_is_an_attendance_item(result, scenario):
     s = scenario(8)
-    ex = only(result.exceptions_for("HALF_DAY", s["employee"]))
-    assert (ex.severity, ex.date) == ("info", s["date"])
+    ex = only(result.exceptions_for(s["code"], s["employee"]))
+    assert (ex.severity, ex.date) == (s["severity"], s["date"])
+    assert not result.exceptions_for("HALF_DAY")
     line = result.line_for(s["employee"])
     assert line.absence_deductions == D(s["deduction"])
+    assert line.gross == D("2000.00")
+
+
+def test_08_half_day_deduction_when_switched_on(inputs, rules, scenario):
+    s = scenario(8)
+    res = run_payroll(inputs, rules.with_changes(salaried_partial_day_deduction=True))
+    ex = only(res.exceptions_for(s["code_when_enabled"], s["employee"]))
+    assert (ex.severity, ex.date) == ("info", s["date"])
+    line = res.line_for(s["employee"])
+    assert line.absence_deductions == D(s["deduction_when_enabled"])
     assert line.gross == D("1900.00")
 
 
@@ -282,14 +295,16 @@ def test_10_hours_summed_across_stores_before_overtime(result, scenario):
 
 # 11 ------------------------------------------------------------------------------------------
 
-def test_11_wrong_store_paid_and_allocated_to_scheduled_store(result, scenario):
+def test_11_wrong_store_paid_where_they_clocked_in_by_default(result, scenario):
     s = scenario(11)
     ex = only(result.exceptions_for("WRONG_LOCATION", s["employee"]))
     assert (ex.severity, ex.date, ex.location_code) == ("needs_review", s["date"], s["location"])
+    assert ex.message == ("Scheduled at Store B ($16.00/h) but clocked in at Store A ($17.00/h). Paid at Store A's "
+                          f"rate by default. Difference for this shift: ${s['difference']}.")
     line = result.line_for(s["employee"])
-    assert line.regular_pay == D("1280.00")  # 80 h at the store B rate ($16), not store A ($17)
-    assert set(line.by_location) == {"B"}
-    assert line.by_location["B"]["regular_pay"] == D("1280.00")
+    assert line.regular_pay == D("1288.00")  # 72 h at Store B ($16) + 8 h at Store A ($17)
+    assert line.by_location[s["paid_at"]]["regular_pay"] == D(s["pay"])
+    assert line.by_location["B"]["regular_pay"] == D("1152.00")
 
 
 # 12 ------------------------------------------------------------------------------------------

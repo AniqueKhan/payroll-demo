@@ -19,8 +19,9 @@ CODE_TITLES = {
     "OVERNIGHT_SHIFT": "Overnight shift",
     "LATE_ARRIVAL": "Late arrival",
     "HALF_DAY": "Half day",
+    "PARTIAL_DAY": "Partial day",
     "ABSENCE_INFORMED": "Absence with leave record",
-    "ABSENCE_UNINFORMED": "Uninformed absence",
+    "ABSENCE_UNINFORMED": "Absence without notice",
     "UNKNOWN_LEAVE_TYPE": "Unknown leave type",
     "WRONG_LOCATION": "Shift logged at the wrong store",
     "UNSCHEDULED_SHIFT": "Unscheduled shift",
@@ -33,10 +34,11 @@ CODE_TITLES = {
     "NEW_HIRE_PRORATED": "New hire prorated",
     "EXIT_FINAL_SETTLEMENT": "Final settlement on exit",
     "CUSTOM_RULE_APPLIED": "Custom deduction applied",
-    "NEGATIVE_NET": "Negative net pay",
+    "NEGATIVE_NET": "Negative net before taxes",
 }
 
-SEVERITY_LABELS = {"blocking": "Blocking", "needs_review": "Needs review", "info": "Handled by rule"}
+SEVERITY_LABELS = {"blocking": "Blocking", "needs_review": "Needs review", "info": "Handled by rule",
+                   "attendance": "Attendance to discuss"}
 
 
 def code_title(code: str) -> str:
