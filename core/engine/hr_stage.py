@@ -96,6 +96,9 @@ def suggest_pairing(punches: list[Punch], sched: Optional[ScheduledShift]) -> tu
                      "suggested_blocks": [[label, fmt_hours(h)] for label, h in blocks]}
 
 
+WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+
 def day_label(d: date) -> str:
     """'Thu Sep 17'."""
     return f"{d:%a %b} {d.day}"
@@ -577,13 +580,50 @@ class _EmployeeRun:
         self.resolve("ABSENCE_UNINFORMED", sched.date, loc, f"Recorded as {kind} by a reviewer: {outcome}"
                      + (f". Note: {override.note}" if override.note else ""))
 
+    def week_portions(self, s: Shift) -> list[tuple[WeekHours, Decimal]]:
+        """A shift's hours per workweek, for the overtime count only. Workweeks start at ``week_start_time``
+        on the week's first day, so a shift that crosses that moment (Sunday 22:00 to Monday 06:00) is split
+        between the two weeks. The shift itself stays on, and is paid on, the day it started.
+
+        Only boundaries inside the period split a shift. Hours before the first week starts count in week 1,
+        and hours after the period ends count in the last week: carrying them into the next period's first
+        workweek is out of scope.
+        """
+        if not s.hours:
+            return []
+        home = next((w for w in self.weeks if w.contains(s.date)), None)
+        if home is None:
+            return []
+        if s.start is None or s.end is None or "adjusted" in s.flags:
+            return [(home, s.hours)]
+        bounds = [datetime.combine(w.start, self.rules.week_start_time) for w in self.weeks[1:]]
+        edges = [datetime.min] + bounds + [datetime.max]
+        portions = []
+        for week, lo, hi in zip(self.weeks, edges, edges[1:]):
+            overlap = (min(s.end, hi) - max(s.start, lo)).total_seconds()
+            if overlap > 0:
+                portions.append([week, minutes_to_hours(overlap / 60)])
+        if len(portions) <= 1:
+            return [(portions[0][0] if portions else home, s.hours)]
+        # Keep the split exact: any rounding difference goes to the largest part.
+        max(portions, key=lambda p: p[1])[1] += s.hours - sum((p[1] for p in portions), ZERO)
+        kind = "Overnight shift" if s.end.date() != s.start.date() else "Shift"
+        parts = ", ".join(f"{fmt_hours(h)} h{' counted' if i == 0 else ''} in Week {w.index}"
+                          for i, (w, h) in enumerate(portions))
+        weekday = WEEKDAY_NAMES[self.rules.week_start]
+        self.line.step(f"Workweek split {s.date}", f"{kind} {day_label(s.start.date())} {hhmm(s.start)} to "
+                       f"{day_label(s.end.date())} {hhmm(s.end)}: {parts}. The workweek starts {weekday} "
+                       f"{hhmm(self.rules.week_start_time)}; the split only affects overtime, the shift stays on "
+                       f"{day_label(s.date)}", None, date=s.date)
+        return [(w, h) for w, h in portions]
+
     def weekly_hours(self) -> None:
         line, rules = self.line, self.rules
         exempt = self.e.pay_type in rules.ot_exempt_pay_types
+        for s in self.shifts:
+            for week, hours in self.week_portions(s):
+                week.hours_by_loc[s.paid_at] = week.hours_by_loc.get(s.paid_at, ZERO) + hours
         for week in self.weeks:
-            for s in self.shifts:
-                if s.hours and week.contains(s.date):
-                    week.hours_by_loc[s.paid_at] = week.hours_by_loc.get(s.paid_at, ZERO) + s.hours
             if not week.hours_by_loc:
                 continue
             for loc, hours in sorted(week.hours_by_loc.items()):

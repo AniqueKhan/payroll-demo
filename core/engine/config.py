@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import copy
+import re
 from dataclasses import dataclass
+from datetime import time
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -30,6 +32,12 @@ class Rules:
     @property
     def week_start(self) -> int:
         return WEEKDAYS.index(self.raw["period"]["week_start"][:3].lower())
+
+    @property
+    def week_start_time(self) -> time:
+        """When each workweek starts on ``week_start`` day, for counting overtime. Validated in ``validate``."""
+        hours, minutes = str(self.raw.get("week_start_time", "00:00")).split(":")
+        return time(int(hours), int(minutes))
 
     @property
     def ot_threshold(self) -> Decimal:
@@ -128,6 +136,11 @@ class Rules:
             raise RulesError("Only the 'weighted_average' overtime method is supported")
         if self.period_length_days % 7:
             raise RulesError("Period length must be a whole number of weeks")
+        start = self.raw.get("week_start_time", "00:00")
+        m = re.fullmatch(r"(\d{2}):(\d{2})", start) if isinstance(start, str) else None
+        if not m or int(m.group(1)) > 23 or int(m.group(2)) > 59:
+            raise RulesError(f"week_start_time must be a time of day between \"00:00\" and \"23:59\", written "
+                             f"HH:MM in quotes (for example \"06:00\"), not {start!r}")
         from .custom_rules import validate_rule
 
         for rule in self.custom_rules:

@@ -48,7 +48,7 @@ def test_01_unknown_column_is_a_file_note_not_an_exception(result, scenario):
     assert (note.code, note.location_code, note.message) == ("UNKNOWN_COLUMN", s["location"], DEPT_NOTE)
     assert note.context == {"columns": ["Badge"]}
     assert not result.exceptions_for("UNKNOWN_COLUMN")
-    assert result.totals["exceptions_by_severity"] == {"needs_review": 6, "info": 13, "attendance": 3}
+    assert result.totals["exceptions_by_severity"] == {"needs_review": 6, "info": 14, "attendance": 3}
 
 
 def test_01_several_extra_columns_make_one_note(inputs):

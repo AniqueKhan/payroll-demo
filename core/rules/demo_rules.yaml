@@ -9,6 +9,11 @@ period:
   length_days: 14
   week_start: monday
 
+# The moment each workweek starts on week_start day, for counting overtime. A shift that crosses it (an
+# overnight shift from Sunday into Monday) has its hours split between the two workweeks; the shift is still
+# paid on the day it started. Write it in quotes with a two-digit hour: "06:00" (YAML reads 6:00 as 360).
+week_start_time: "00:00"
+
 # Every store in the demo data must deliver a time clock export every period (scenario 2); a store
 # with no export is a blocking STORE_FILE_MISSING. The list of stores comes from the seeded locations.
 
