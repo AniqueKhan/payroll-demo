@@ -52,6 +52,13 @@ def base_context(run: m.PayrollRun, active: str) -> dict:
     }
 
 
+def period_label(period: m.PayPeriod) -> str:
+    """'Sep 7 to 20', or 'Sep 28 to Oct 11' when the period spans two months."""
+    start, end = period.start_date, period.end_date
+    tail = f"{end.day}" if (start.year, start.month) == (end.year, end.month) else f"{end:%b} {end.day}"
+    return f"{start:%b} {start.day} to {tail}"
+
+
 def raw_row_index(period: m.PayPeriod) -> dict[tuple[str, int], m.RawImportRow]:
     rows = m.RawImportRow.objects.filter(batch__period=period).select_related("batch__location")
     return {(r.batch.location.code, r.row_number): r for r in rows}
@@ -107,8 +114,10 @@ def inputs(request, run):
     for loc in m.Location.objects.all():
         batch = batches.get(loc.code)
         rows = []
+        skipped = 0
         if batch:
-            for r in batch.raw_rows.all():
+            skipped = batch.raw_rows.filter(in_period=False).count()
+            for r in batch.raw_rows.filter(in_period=True):
                 refs = sorted(referenced.get((loc.code, r.row_number), []), key=lambda x: SEVERITY_RANK[x.severity])
                 rows.append({
                     "number": r.row_number,
@@ -119,8 +128,8 @@ def inputs(request, run):
                     "severity": refs[0].severity if refs else "",
                 })
         stores.append({"location": loc, "batch": batch, "rows": rows, "missing": missing.get(loc.code),
-                       "flagged": sum(1 for r in rows if r["refs"] or r["error"])})
-    ctx.update({"stores": stores})
+                       "flagged": sum(1 for r in rows if r["refs"] or r["error"]), "skipped": skipped})
+    ctx.update({"stores": stores, "period_label": period_label(run.period)})
     return render(request, "core/inputs.html", ctx)
 
 

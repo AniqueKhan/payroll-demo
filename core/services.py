@@ -18,7 +18,7 @@ from .engine.config import DEFAULT_RULES_PATH, Rules, load_rules
 from .engine.exceptions import BLOCKING, INFO, NEEDS_REVIEW
 from .engine.explain import fmt_money
 from .engine.importers import get_importer
-from .engine.run import PayrollInputs, make_period
+from .engine.run import PayrollInputs, attribute_rows, make_period
 from .engine.run import run_payroll as run_engine
 
 
@@ -117,6 +117,7 @@ def seed_demo(missing_store: Optional[str] = None, output_dir: Optional[Path] = 
         if not path.exists():
             continue  # missing store: no import batch, the engine raises a blocking exception
         store_raw_rows(locations[code], period, path, engine_employees)
+    mark_rows_in_period(period, rules)
     return period
 
 
@@ -140,6 +141,27 @@ def store_raw_rows(location: m.Location, period: m.PayPeriod, path: Path, employ
                        parse_error="; ".join(errors.get(n, [])))
         for n, values in enumerate(body, start=2))
     return batch
+
+
+def mark_rows_in_period(period: m.PayPeriod, rules: Rules) -> None:
+    """Flag raw rows that belong to this payroll, for the Inputs screen.
+
+    A row that is part of a shift belongs where the shift started (the clock-out of an overnight shift on
+    the last day is shown; the clock-out of one that started the evening before is not). Any other row goes
+    by its own date. Rows with an unreadable date stay visible, because they are raised for review.
+    """
+    shift_rows = attribute_rows(build_inputs(period, rules), rules)
+    outside = []
+    for batch in period.imports.select_related("location"):
+        importer = get_importer(batch.location.export_format)(batch.location.code, [])
+        for row in batch.raw_rows.all():
+            belongs = shift_rows.get((batch.location.code, row.row_number))
+            if belongs is None:
+                on = importer.safe_row_date({k: (v or "").strip() for k, v in row.raw.items()})
+                belongs = on is None or period.start_date <= on <= period.end_date
+            if not belongs:
+                outside.append(row.pk)
+    m.RawImportRow.objects.filter(pk__in=outside).update(in_period=False)
 
 
 # ---------------------------------------------------------------- ORM -> engine

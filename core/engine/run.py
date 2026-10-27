@@ -12,7 +12,7 @@ from .config import Rules
 from .custom_rules import apply_custom_rules
 from .explain import fmt_money
 from .finance_stage import run_finance_stage
-from .hr_stage import run_hr_stage
+from .hr_stage import build_shifts, drop_duplicates, run_hr_stage
 from .importers import get_importer
 from .importers.base import FileLike
 from .types import (
@@ -59,12 +59,26 @@ def import_time_files(inputs: PayrollInputs, rules: Rules) -> tuple[list[Punch],
                 ))
             continue
         importer = get_importer(loc.export_format)(loc.code, inputs.employees)
-        loc_punches, loc_found = importer.parse(source)
+        loc_punches, loc_found = importer.parse(source, inputs.period)
         if any(e.code == "FILE_UNREADABLE" for e in loc_found):
             missing.add(loc.code)
         punches.extend(loc_punches)
         found.extend(loc_found)
     return punches, found, missing
+
+
+def attribute_rows(inputs: PayrollInputs, rules: Rules) -> dict[tuple[str, int], bool]:
+    """For every raw row (location, row) that is part of a paired shift: does that shift belong to this payroll?
+
+    A shift belongs to the day it started. So the clock-out of an overnight shift that started on the last day
+    belongs here even though it is dated the day after, and the clock-out of a shift that started the evening
+    before the period does not, even though it is dated the first day.
+    """
+    punches, _, _ = import_time_files(inputs, rules)
+    punches, _ = drop_duplicates(punches, rules.duplicate_window_minutes, inputs.period)
+    period = inputs.period
+    return {(p.location_code, p.source_row): period.start <= s.date <= period.end
+            for s in build_shifts(punches, rules) for p in s.raw_punches}
 
 
 def run_payroll(inputs: PayrollInputs, rules: Rules, adjustments: Optional[Adjustments] = None) -> PayrollResult:

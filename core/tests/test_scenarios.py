@@ -3,6 +3,7 @@
 Engine tests use no database. Scenario 17 (review gate) is a service-level test and does.
 """
 import io
+from collections import Counter
 from dataclasses import replace
 from datetime import date
 from decimal import Decimal as D
@@ -79,12 +80,19 @@ def test_01_malformed_row_with_unpairable_remainder_counts_zero(inputs, rules):
     assert line.regular_pay == D("1186.35")  # 71.90 h x $16.50: 8 Sep held at 0 h
 
 
-def test_01_malformed_row_outside_period_stays_info(result, scenario):
-    s = scenario(1, code="MALFORMED_ROW", severity="info")
-    bad = only(result.exceptions_for("MALFORMED_ROW", s["employee"]))
-    assert (bad.severity, bad.auto_resolved, bad.date) == ("info", True, s["date"])
-    assert bad.message.endswith("outside this pay period, no effect on pay")
-    assert result.line_for(s["employee"]).regular_pay == D("1116.00")  # unchanged, see scenario 4
+def test_01_rows_outside_the_period_are_skipped_quietly(inputs, rules, result):
+    # A bad row, an unknown identifier and a duplicate punch, all dated next to the period.
+    extra = ("1003,2026-09-06,18:3O,OUT\n"      # unreadable punch the day before
+             "9999,2026-09-21,09:00,IN\n"       # unknown employee the day after
+             "1005,2026-09-21,09:00,IN\n1005,2026-09-21,09:01,IN\n1005,2026-09-21,17:00,OUT\n")  # duplicate
+    store_a = inputs.time_files["A"].read_text() + extra
+    res = run_payroll(replace(inputs, time_files={**inputs.time_files, "A": io.StringIO(store_a)}), rules)
+    assert Counter(e.key for e in res.exceptions) == Counter(e.key for e in result.exceptions)
+    assert res.totals == result.totals
+    # Inside the period the same kinds of rows are still reported.
+    inside = store_a + "9999,2026-09-08,09:00,IN\n"
+    res = run_payroll(replace(inputs, time_files={**inputs.time_files, "A": io.StringIO(inside)}), rules)
+    assert only(res.exceptions_for("UNKNOWN_EMPLOYEE")).location_code == "A"
 
 
 def test_01_malformed_row_with_unreadable_date_needs_review(inputs, rules):

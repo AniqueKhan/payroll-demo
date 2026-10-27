@@ -53,7 +53,7 @@ def test_overview_calls_for_review_and_disables_finalize(client, period):
 
 def test_inputs_mark_flagged_rows_unknown_columns_and_link_to_exceptions(client, period):
     html = client.get(url("inputs")).content.decode()
-    assert 'id="row-A-36"' in html and "malformed row" in html
+    assert 'id="row-A-37"' in html and "malformed row" in html
     assert "unknown column, ignored" in html  # store C's 'Dept'
     assert "#exc-MISSED_CLOCK_OUT-E03-2026-09-10-A" in html
 
@@ -70,7 +70,7 @@ def test_exceptions_queue_shows_forms_with_suggested_values(client, period):
 def test_payroll_lists_everyone_with_markers_and_totals(client, period):
     html = client.get(url("payroll")).content.decode()
     assert html.count('class="rowlink"') == 18
-    assert "Needs review" in html and "$24,217.99" in html
+    assert "Needs review" in html and "$24,341.99" in html
 
 
 def test_decide_via_post_updates_totals_and_confirms(client, period):
@@ -80,7 +80,7 @@ def test_decide_via_post_updates_totals_and_confirms(client, period):
     html = r.content.decode()
     assert "Approved with value: Missed clock-out. 6 items still need review." in html
     assert "Your copy" in html and "Start over" in html
-    assert D(my_run(client, period).totals["gross"]) == D("24217.99") + D("124.00")
+    assert D(my_run(client, period).totals["gross"]) == D("24341.99") + D("124.00")
     assert "Reviewer adjustment" in client.get(url("employee", employee_id="E03")).content.decode()
 
 

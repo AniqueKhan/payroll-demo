@@ -180,6 +180,9 @@ def build_schedules(plan: Plan, employees: list[dict]) -> list[dict]:
     # Saturday shifts at the second store push these two over 40 hours.
     add("E06", "B", d(5), "10:00", "16:00")
     add("E11", "B", d(12), "10:00", "16:00")
+    # Boundary: overnight shift starting on the period's last day (Sunday), ending the morning after.
+    # E09 has sick leave that Monday, so the week stays under 40 worked hours.
+    add("E09", "B", d(plan.length_days - 1), "22:00", "06:00")
     rows.sort(key=lambda r: (r["date"], r["employee_id"]))
     return rows
 
@@ -220,8 +223,6 @@ def apply_scenarios(plan: Plan, shifts: list[dict]) -> tuple[list[dict], dict]:
     # 1: malformed rows in store A, unexpected column in store C (all added when writing files)
     record(1, "E02", d(2), "A", code="MALFORMED_ROW", severity="needs_review", paid_hours="8.00",
            note="row with time '9:6O' inside the period: remaining punches pair, paid and flagged for review")
-    record(1, "E03", d(-1), "A", code="MALFORMED_ROW", severity="info",
-           note="row with time '18:3O' dated before the period: no effect on pay")
     record(1, None, None, "C", code="UNKNOWN_COLUMN", note="extra 'Dept' column")
     # 3: duplicate IN at store A
     find("E02", d(1))["duplicate_in"] = True
@@ -273,7 +274,44 @@ def apply_scenarios(plan: Plan, shifts: list[dict]) -> tuple[list[dict], dict]:
     record(17, note="finalize refuses while needs_review exceptions are open or blocking ones exist")
     # 18: custom rules from config
     record(18, "E16", None, None, code="CUSTOM_RULE_APPLIED", retirement="41.40", table="13.80")
+    # 19: pay period boundaries (a shift belongs to the day it started)
+    last = plan.length_days - 1
+    edge = find("E09", d(last))
+    edge["in"], edge["out"] = at(last, "22:00"), at(last + 1, "06:00")  # exact, no jitter
+    record(19, "E09", d(last), "B", code="OVERNIGHT_SHIFT", hours="8.00", pay="124.00",
+           note="starts on the last day, ends the morning after: fully counted in this payroll")
+    shifts.append({"employee_id": "E12", "location": "B", "date": d(-1), "in": at(-1, "22:00"),
+                   "out": at(0, "06:00"), "edge": True})
+    record(19, "E12", d(-1), "B", code=None, hours="0.00",
+           note="starts the evening before the period: belongs to the previous payroll, not counted or shown")
     return shifts, scenarios
+
+
+def edge_shifts(plan: Plan, employees: list[dict]) -> list[dict]:
+    """Normal shifts on the day before the period and the day after it: real exports spill past the edges.
+
+    They belong to other pay periods, so the engine skips them.
+    """
+    shifts = []
+
+    def add(emp, loc, n, start, end):
+        shifts.append({"employee_id": emp, "location": loc, "date": plan.day(n), "in": plan.at(n, start),
+                       "out": plan.at(n, end), "edge": True})
+
+    # The Sunday before: a few weekend shifts.
+    add("E04", "A", -1, "10:00", "16:00")
+    add("E08", "B", -1, "10:00", "16:00")
+    add("E16", "C", -1, "10:00", "16:00")
+    # The Monday after: everyone still employed works their usual shift.
+    after = plan.length_days
+    for e in employees:
+        if e["exit_date"] and date.fromisoformat(e["exit_date"]) < plan.day(after):
+            continue
+        if e["pay_type"] == "salaried":
+            add(e["id"], e["home_location"], after, "08:00", "17:00")
+        else:
+            add(e["id"], e["home_location"], after, "09:00", "17:00")
+    return shifts
 
 
 def _write_csv(path: Path, header: list[str], rows: list[list]) -> None:
@@ -299,7 +337,6 @@ def write_store_a(path: Path, shifts: list[dict], plan: Plan) -> None:
         if s["out"]:
             rows.append([emp, s["out"].date().isoformat(), s["out"].strftime("%H:%M"), "OUT"])
     rows.append([_ext("E02", "A"), plan.day(2).isoformat(), "9:6O", "IN"])  # scenario 1: malformed, affects pay
-    rows.append([_ext("E03", "A"), plan.day(-1).isoformat(), "18:3O", "OUT"])  # scenario 1: malformed, before
     rows.sort(key=lambda r: (r[1], r[0], r[2]))
     _write_csv(path, ["EmpID", "Date", "Time", "Type"], rows)
 
@@ -343,6 +380,7 @@ def generate(output_dir: Path | str = DEFAULT_OUTPUT, missing_store: Optional[st
     employees = plan.employees()
     schedules = build_schedules(plan, employees)
     shifts, scenarios = apply_scenarios(plan, build_shifts(schedules, rng))
+    shifts += edge_shifts(plan, employees)
     writers = {"A": write_store_a, "B": write_store_b, "C": write_store_c}
     for code, writer in writers.items():
         if code != (missing_store or "").upper():

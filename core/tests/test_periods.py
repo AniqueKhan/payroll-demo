@@ -9,7 +9,6 @@ from io import StringIO
 import pytest
 from django.core.management import CommandError, call_command
 
-from core import services
 from core.demo_data.generator import PeriodStartError, generate
 from core.engine.inputs import load_inputs_from_dir, read_manifest
 from core.engine.run import run_payroll
@@ -67,7 +66,7 @@ def test_planted_scenarios_move_with_the_period(runs, start):
 def test_default_period_is_unchanged(runs):
     manifest, result = runs[PERIODS[0]]
     assert manifest["period_start"] == "2026-09-07"
-    assert str(result.totals["gross"]) == "24217.99" and str(result.totals["net"]) == "22565.87"
+    assert str(result.totals["gross"]) == "24341.99" and str(result.totals["net"]) == "22684.91"
 
 
 def test_non_week_start_date_is_refused_with_a_clear_message(tmp_path, rules):
@@ -102,5 +101,5 @@ def test_seed_and_run_another_period_through_the_database(tmp_path):
     assert Employee.objects.get(employee_id="E13").exit_date == date(2027, 1, 8)
     call_command("run_payroll", "--period", "2027-01-04", stdout=StringIO())
     run = PayrollRun.objects.get()
-    assert (run.totals["gross"], run.totals["net"]) == ("24217.99", "22565.87")
+    assert (run.totals["gross"], run.totals["net"]) == ("24341.99", "22684.91")
     assert run.exceptions.filter(severity="needs_review", status="open").count() == 7

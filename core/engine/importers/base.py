@@ -9,12 +9,12 @@ import csv
 import io
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from datetime import date, timedelta
 from pathlib import Path
-from datetime import date
 from typing import IO, Iterable, Optional, Union
 
 from .. import exceptions as exc
-from ..types import Employee, PayrollException, Punch
+from ..types import Employee, PayrollException, Period, Punch
 
 FileLike = Union[str, Path, IO[str]]
 
@@ -51,8 +51,19 @@ class Importer(ABC):
         """Best-effort work date of a row, used to locate the day a bad row belongs to."""
         return None
 
-    def parse(self, file: FileLike) -> tuple[list[Punch], list[PayrollException]]:
+    def safe_row_date(self, row: dict[str, str]) -> Optional[date]:
+        try:
+            return self.row_date(row)
+        except (ValueError, IndexError, KeyError):
+            return None
+
+    def parse(self, file: FileLike, period: Optional[Period] = None) -> tuple[list[Punch], list[PayrollException]]:
+        """Read the export. With a ``period``, punches are read from the day before its start to the day
+        after its end, so shifts pair across both edges. Rows dated further out are skipped quietly, and
+        bad or unknown rows are reported only when dated inside the period (or when the date is unreadable).
+        """
         found: list[PayrollException] = []
+        window = (period.start - timedelta(days=1), period.end + timedelta(days=1)) if period else None
         try:
             text = self._read(file)
         except (OSError, UnicodeDecodeError) as e:
@@ -81,18 +92,21 @@ class Importer(ABC):
             row = {k: (v or "").strip() for k, v in row.items() if k is not None}
             if not any(row.values()):
                 continue
+            on = self.safe_row_date(row)
+            if window and on and not window[0] <= on <= window[1]:
+                continue  # belongs to another pay period: skipped quietly
+            in_period = period is None or on is None or period.start <= on <= period.end
             ident = self.row_identifier(row)
             employee_id = self.id_map.get(normalize_id(ident))
             if employee_id is None:
-                unknown[ident].append(source_row)
+                if in_period:
+                    unknown[ident].append(source_row)
                 continue
             try:
                 punches.extend(self.parse_row(row, employee_id, source_row))
             except (RowError, ValueError) as e:
-                try:
-                    on = self.row_date(row)
-                except (ValueError, IndexError):
-                    on = None
+                if not in_period:
+                    continue  # an unreadable punch next to the period cannot affect this payroll
                 # Severity is settled later by the HR stage, which knows the period and the schedule.
                 found.append(exc.make(
                     "MALFORMED_ROW",

@@ -30,6 +30,9 @@
       {{ s.batch.row_count }} rows · columns as exported:
       {% for c in s.batch.columns %}<code class="{% if c in s.batch.unknown_columns %}col-unknown{% endif %}">{{ c }}</code>{% if c in s.batch.unknown_columns %} <span class="tag tag-amber">unknown column, ignored</span>{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}
     </p>
+    {% if s.skipped %}
+      <p class="small skipped-note">{{ s.skipped }} row{{ s.skipped|pluralize }} outside {{ period_label }} {{ s.skipped|pluralize:"was,were" }} skipped (shifts that belong to another pay period).</p>
+    {% endif %}
     <div class="table-wrap">
       <table class="raw">
         <thead>

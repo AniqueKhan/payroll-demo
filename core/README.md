@@ -67,7 +67,11 @@ The demo story:
 - **Gross pay** = regular + overtime + add-ons - absence deductions.
 - **Net pay** = gross - penalties - loans - custom deductions.
 - **Loan cap.** The cap is a percentage of net pay before loans. For a leaver, the engine deducts the remaining balance up to that cap. Anything still owed is flagged as a final settlement.
-- **Unreadable rows.** A bad row for a known employee, dated inside the period, is raised as `needs_review`. If the employee's remaining punches for that day at that store pair cleanly, the day is paid from them and the reviewer confirms the lost punch wasn't a real break or extra shift. If they can't be paired, the day is counted as 0 h, with the remaining punches attached and the scheduled hours suggested. A row whose date can't be read is also `needs_review`. Rows dated outside the period stay `info` and have no effect on pay.
+- **Unreadable rows.** A bad row for a known employee, dated inside the period, is raised as `needs_review`. If the employee's remaining punches for that day at that store pair cleanly, the day is paid from them and the reviewer confirms the lost punch wasn't a real break or extra shift. If they can't be paired, the day is counted as 0 h, with the remaining punches attached and the scheduled hours suggested. A row whose date can't be read is also `needs_review`.
+- **Pay period boundaries.** A shift belongs to the day it started (its clock-in date). The importers read one day either side of the period, so shifts pair across both edges. Then only shifts that clock in inside the period are kept:
+  - A shift that starts the evening before the period belongs to the previous payroll. It is not counted, not flagged and not shown.
+  - A shift that starts on the last day is counted in full here, even though it ends the morning after.
+  - Rows from other dates that aren't part of such a shift are skipped quietly. The Inputs screen shows how many were skipped.
 - **Shifts at a store with no export.** The engine never turns these into absences. The `STORE_FILE_MISSING` blocking exception covers them.
 - **Finalizing.** `finalize` adds each loan deduction to `paid_to_date`, so whatever was capped carries into the next period. A finalized period cannot be re-run.
 
