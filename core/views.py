@@ -9,11 +9,13 @@ from decimal import Decimal
 from functools import wraps
 
 from django.contrib import messages
+from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
+from . import labels
 from . import models as m
 from . import services
 from .engine.config import DEFAULT_RULES_PATH, load_rules
@@ -52,8 +54,45 @@ def base_context(run: m.PayrollRun, active: str) -> dict:
     }
 
 
-def raw_row_index(period: m.PayPeriod) -> dict[tuple[str, int], m.RawImportRow]:
-    rows = m.RawImportRow.objects.filter(batch__period=period).select_related("batch__location")
+def period_label(period: m.PayPeriod) -> str:
+    """'Sep 7 to 20', or 'Sep 28 to Oct 11' when the period spans two months."""
+    return labels.period_label(period.start_date, period.end_date)
+
+
+def department_context(run: m.PayrollRun) -> dict:
+    """Labor cost by department, overall and per store, from the run totals."""
+    totals = run.totals
+    names = dict(m.Location.objects.values_list("code", "name"))
+    gross = Decimal(totals.get("gross", "0"))
+    by_dept = totals.get("by_department", {})
+
+    def rows(depts: dict) -> list[dict]:
+        return [{"name": name, "hours": Decimal(v["hours"]), "gross": Decimal(v["gross"])}
+                for name, v in depts.items()]
+
+    departments = rows(by_dept)
+    for d in departments:
+        d["share"] = f"{(d['gross'] / gross * 100):.1f}" if gross else "0.0"
+    store_departments = []
+    for code, depts in totals.get("by_location_department", {}).items():
+        dept_rows = rows(depts)
+        store_departments.append({"code": code, "name": names.get(code, ""), "departments": dept_rows,
+                                  "hours": sum((d["hours"] for d in dept_rows), Decimal(0)),
+                                  "gross": sum((d["gross"] for d in dept_rows), Decimal(0))})
+    return {"departments": departments, "store_departments": store_departments,
+            "department_hours": sum((d["hours"] for d in departments), Decimal(0)),
+            "department_gross": sum((d["gross"] for d in departments), Decimal(0))}
+
+
+def raw_row_index(period: m.PayPeriod, wanted: set[tuple[str, int]]) -> dict[tuple[str, int], m.RawImportRow]:
+    """The raw rows referenced by exceptions, keyed by (store, row number). Loads only those rows."""
+    by_store: dict[str, set[int]] = defaultdict(set)
+    for loc, number in wanted:
+        by_store[loc].add(number)
+    query = Q(pk__in=[])
+    for loc, numbers in by_store.items():
+        query |= Q(batch__location__code=loc, row_number__in=sorted(numbers))
+    rows = m.RawImportRow.objects.filter(query, batch__period=period).select_related("batch__location")
     return {(r.batch.location.code, r.row_number): r for r in rows}
 
 
@@ -90,6 +129,7 @@ def overview(request, run):
         "approved_count": run.exceptions.filter(severity="needs_review", status="approved").count(),
         "blockers": services.finalize_blockers(run),
         "decision_count": services.decisions(run.period, run.sandbox).count(),
+        **department_context(run),
     })
     return render(request, "core/overview.html", ctx)
 
@@ -103,12 +143,17 @@ def inputs(request, run):
             referenced[(loc, row)].append(x)
     batches = {b.location.code: b for b in run.period.imports.select_related("location")}
     missing = {x.location.code: x for x in run.exceptions.filter(code="STORE_FILE_MISSING").select_related("location")}
+    notes = defaultdict(list)
+    for note in run.file_notes:
+        notes[note["location"]].append(note)
     stores = []
     for loc in m.Location.objects.all():
         batch = batches.get(loc.code)
         rows = []
+        skipped = 0
         if batch:
-            for r in batch.raw_rows.all():
+            skipped = batch.raw_rows.filter(in_period=False).count()
+            for r in batch.raw_rows.filter(in_period=True):
                 refs = sorted(referenced.get((loc.code, r.row_number), []), key=lambda x: SEVERITY_RANK[x.severity])
                 rows.append({
                     "number": r.row_number,
@@ -119,8 +164,9 @@ def inputs(request, run):
                     "severity": refs[0].severity if refs else "",
                 })
         stores.append({"location": loc, "batch": batch, "rows": rows, "missing": missing.get(loc.code),
-                       "flagged": sum(1 for r in rows if r["refs"] or r["error"])})
-    ctx.update({"stores": stores})
+                       "flagged": sum(1 for r in rows if r["refs"] or r["error"]), "skipped": skipped,
+                       "notes": notes.get(loc.code, [])})
+    ctx.update({"stores": stores, "period_label": period_label(run.period)})
     return render(request, "core/inputs.html", ctx)
 
 
@@ -150,9 +196,9 @@ def present_exception(x: m.PayrollExceptionRecord, decisions: dict, raw_rows: di
 def exceptions(request, run):
     ctx = base_context(run, "exceptions")
     decisions = {d.exception_key: d for d in services.decisions(run.period, run.sandbox)}
-    raw_rows = raw_row_index(run.period)
+    records = list(run.exceptions.select_related("employee", "location").order_by("id"))
+    raw_rows = raw_row_index(run.period, {(loc, n) for x in records for loc, n in x.rows})
     leave_types = list(load_rules(DEFAULT_RULES_PATH).leave_types)
-    records = run.exceptions.select_related("employee", "location").order_by("id")
     items = [present_exception(x, decisions, raw_rows, leave_types) for x in records]
     ctx.update({
         "sections": [
@@ -188,14 +234,25 @@ def employee_markers(run: m.PayrollRun) -> dict[str, dict]:
 @with_run
 def payroll(request, run):
     ctx = base_context(run, "payroll")
-    lines = list(run.lines.select_related("employee__home_location"))
+    q = request.GET.get("q", "").strip()
+    store = request.GET.get("store", "").strip().upper()
+    all_lines = run.lines.select_related("employee__home_location")
+    lines = all_lines
+    if q:
+        lines = lines.filter(Q(employee__name__icontains=q) | Q(employee__employee_id__iexact=q)
+                             | Q(employee__employee_id__icontains=q))
+    if store:
+        lines = lines.filter(employee__home_location__code=store)
+    lines = list(lines)
     if request.GET.get("sort") == "gross":
         lines.sort(key=lambda line: line.gross, reverse=True)
     fields = ["regular_hours", "overtime_hours", "regular_pay", "overtime_pay", "addons", "deductions", "gross",
               "net"]
     totals = {f: sum((getattr(line, f) for line in lines), Decimal(0)) for f in fields}
     ctx.update({"lines": lines, "totals": totals, "markers": employee_markers(run),
-                "sort": request.GET.get("sort", "")})
+                "sort": request.GET.get("sort", ""), "q": q, "store": store,
+                "stores": m.Location.objects.all(), "total_count": all_lines.count(),
+                "filtered": bool(q or store), **department_context(run)})
     return render(request, "core/payroll.html", ctx)
 
 
@@ -224,7 +281,8 @@ def employee(request, run, employee_id):
         "line": line,
         "rates": [(code, names.get(code, ""), rate) for code, rate in sorted(emp.rates.items())],
         "sections": sections,
-        "by_location": [(code, names.get(code, ""), b) for code, b in sorted(line.by_location.items())],
+        "by_location": [(code, names.get(code, ""), b, sorted((line.by_department or {}).get(code, {}).items()))
+                        for code, b in sorted(line.by_location.items())],
         "employee_exceptions": exceptions_,
         "adjustment_count": sum(1 for s in line.trail if (s.get("refs") or {}).get("adjustment")),
     })

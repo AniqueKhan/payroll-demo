@@ -9,8 +9,8 @@ period:
   length_days: 14
   week_start: monday
 
-# Stores that must deliver a time clock export every period (scenario 2).
-expected_locations: [A, B, C]
+# Every store in the demo data must deliver a time clock export every period (scenario 2); a store
+# with no export is a blocking STORE_FILE_MISSING. The list of stores comes from the seeded locations.
 
 overtime:
   weekly_threshold_hours: "40"

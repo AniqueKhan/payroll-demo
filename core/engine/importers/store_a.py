@@ -10,6 +10,7 @@ from .base import Importer, RowError
 class StoreAImporter(Importer):
     format_name = "store_a"
     required_columns = ("EmpID", "Date", "Time", "Type")
+    department_column = "Dept"
 
     def row_identifier(self, row):
         return row["EmpID"]

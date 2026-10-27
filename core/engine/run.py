@@ -12,7 +12,7 @@ from .config import Rules
 from .custom_rules import apply_custom_rules
 from .explain import fmt_money
 from .finance_stage import run_finance_stage
-from .hr_stage import run_hr_stage
+from .hr_stage import build_shifts, drop_duplicates, run_hr_stage
 from .importers import get_importer
 from .importers.base import FileLike
 from .types import (
@@ -20,6 +20,7 @@ from .types import (
     Period, Punch, ScheduledShift,
 )
 
+FILE_NOTE_CODES = {"UNKNOWN_COLUMN"}
 SEVERITY_ORDER = {exc.BLOCKING: 0, exc.NEEDS_REVIEW: 1, exc.INFO: 2}
 
 
@@ -45,7 +46,7 @@ def import_time_files(inputs: PayrollInputs, rules: Rules) -> tuple[list[Punch],
     punches: list[Punch] = []
     found: list[PayrollException] = []
     missing: set[str] = set()
-    expected = set(rules.expected_locations) or {loc.code for loc in inputs.locations}
+    expected = {loc.code for loc in inputs.locations}  # every store must deliver an export
     for loc in inputs.locations:
         source = inputs.time_files.get(loc.code)
         if source is None:
@@ -59,12 +60,26 @@ def import_time_files(inputs: PayrollInputs, rules: Rules) -> tuple[list[Punch],
                 ))
             continue
         importer = get_importer(loc.export_format)(loc.code, inputs.employees)
-        loc_punches, loc_found = importer.parse(source)
+        loc_punches, loc_found = importer.parse(source, inputs.period)
         if any(e.code == "FILE_UNREADABLE" for e in loc_found):
             missing.add(loc.code)
         punches.extend(loc_punches)
         found.extend(loc_found)
     return punches, found, missing
+
+
+def attribute_rows(inputs: PayrollInputs, rules: Rules) -> dict[tuple[str, int], bool]:
+    """For every raw row (location, row) that is part of a paired shift: does that shift belong to this payroll?
+
+    A shift belongs to the day it started. So the clock-out of an overnight shift that started on the last day
+    belongs here even though it is dated the day after, and the clock-out of a shift that started the evening
+    before the period does not, even though it is dated the first day.
+    """
+    punches, _, _ = import_time_files(inputs, rules)
+    punches, _ = drop_duplicates(punches, rules.duplicate_window_minutes, inputs.period)
+    period = inputs.period
+    return {(p.location_code, p.source_row): period.start <= s.date <= period.end
+            for s in build_shifts(punches, rules) for p in s.raw_punches}
 
 
 def run_payroll(inputs: PayrollInputs, rules: Rules, adjustments: Optional[Adjustments] = None) -> PayrollResult:
@@ -73,6 +88,9 @@ def run_payroll(inputs: PayrollInputs, rules: Rules, adjustments: Optional[Adjus
     adjustments = adjustments or Adjustments()
     applied: dict[str, str] = {}  # exception key -> resolution text, filled by the stages
     punches, found, missing = import_time_files(inputs, rules)
+    # Extra columns are file-level notes for the Inputs screen, not payroll exceptions: they never count.
+    notes = [e for e in found if e.code in FILE_NOTE_CODES]
+    found = [e for e in found if e.code not in FILE_NOTE_CODES]
     # Bad rows that belong to a known employee may change someone's pay: the HR stage settles them.
     bad_rows = [e for e in found if e.code == "MALFORMED_ROW" and e.employee_id]
     found = [e for e in found if not (e.code == "MALFORMED_ROW" and e.employee_id)]
@@ -102,7 +120,8 @@ def run_payroll(inputs: PayrollInputs, rules: Rules, adjustments: Optional[Adjus
             e.resolution = applied[e.key]
 
     found.sort(key=lambda e: (SEVERITY_ORDER[e.severity], e.code, e.employee_id or "", str(e.date or "")))
-    return PayrollResult(lines=lines, exceptions=found, period=period, totals=compute_totals(lines, found, inputs))
+    return PayrollResult(lines=lines, exceptions=found, period=period, totals=compute_totals(lines, found, inputs),
+                         notes=notes)
 
 
 def compute_totals(lines, found, inputs: PayrollInputs) -> dict:
@@ -119,5 +138,18 @@ def compute_totals(lines, found, inputs: PayrollInputs) -> dict:
     totals = {f: sum((getattr(line, f) for line in lines), ZERO) for f in fields}
     totals["employees"] = len(lines)
     totals["by_location"] = by_location
+    # Labor cost by department, overall and per store (gross = regular + OT + add-ons - absence).
+    by_department: dict[str, dict[str, Decimal]] = {}
+    by_location_department: dict[str, dict[str, dict[str, Decimal]]] = {}
+    for line in lines:
+        for store, depts in line.by_department.items():
+            for dept, bucket in depts.items():
+                for slot in (by_department.setdefault(dept, {"hours": ZERO, "gross": ZERO}),
+                             by_location_department.setdefault(store, {}).setdefault(
+                                 dept, {"hours": ZERO, "gross": ZERO})):
+                    slot["hours"] += bucket["hours"]
+                    slot["gross"] += bucket["gross"]
+    totals["by_department"] = dict(sorted(by_department.items()))
+    totals["by_location_department"] = {s: dict(sorted(d.items())) for s, d in sorted(by_location_department.items())}
     totals["exceptions_by_severity"] = dict(Counter(e.severity for e in found))
     return totals

@@ -12,6 +12,7 @@ DATETIME_FORMAT = "%m/%d/%Y %I:%M %p"
 class StoreBImporter(Importer):
     format_name = "store_b"
     required_columns = ("employee_code", "punch_datetime")
+    department_column = "department"
 
     def row_identifier(self, row):
         return row["employee_code"]

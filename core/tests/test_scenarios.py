@@ -3,6 +3,7 @@
 Engine tests use no database. Scenario 17 (review gate) is a service-level test and does.
 """
 import io
+from collections import Counter
 from dataclasses import replace
 from datetime import date
 from decimal import Decimal as D
@@ -37,10 +38,33 @@ def test_01_importers_normalize_each_format(inputs):
         ("E16", "in", "2026-09-07 22:00:00"), ("E16", "out", "2026-09-08 06:00:00")]
 
 
-def test_01_unknown_column_is_info(result, scenario):
-    col = only(result.exceptions_for("UNKNOWN_COLUMN"))
-    assert (col.severity, col.location_code) == ("info", scenario(1, code="UNKNOWN_COLUMN")["location"])
-    assert "'Dept'" in col.message
+DEPT_NOTE = ('Store C\'s file has an extra column, "Badge", that we don\'t use. It was ignored and doesn\'t affect '
+             "pay. If the store changed its export settings, it's worth a quick look.")
+
+
+def test_01_unknown_column_is_a_file_note_not_an_exception(result, scenario):
+    s = scenario(1, code="UNKNOWN_COLUMN")
+    note = only(result.notes)
+    assert (note.code, note.location_code, note.message) == ("UNKNOWN_COLUMN", s["location"], DEPT_NOTE)
+    assert note.context == {"columns": ["Badge"]}
+    assert not result.exceptions_for("UNKNOWN_COLUMN")
+    assert result.totals["exceptions_by_severity"] == {"needs_review": 7, "info": 15}
+
+
+def test_01_several_extra_columns_make_one_note(inputs):
+    _, found = StoreAImporter("A", inputs.employees).parse(io.StringIO(
+        "EmpID,Date,Time,Type,Badge,Shift Code\n1002,2026-09-07,09:00,IN,7,X\n"))
+    note = only(found)
+    assert note.message.startswith('Store A\'s file has extra columns, "Badge" and "Shift Code", that we don\'t '
+                                   "use. They were ignored and don't affect pay.")
+
+
+def test_01_missing_required_column_still_makes_the_file_unreadable(inputs, rules):
+    no_type = "EmpID,Date,Time,Dept\n1002,2026-09-07,09:00,Floor\n"
+    res = run_payroll(replace(inputs, time_files={**inputs.time_files, "A": io.StringIO(no_type)}), rules)
+    bad = only(res.exceptions_for("FILE_UNREADABLE"))
+    assert (bad.severity, bad.location_code) == ("blocking", "A") and "missing Type" in bad.message
+    assert not [n for n in res.notes if n.location_code == "A"]  # unreadable file: no column note
 
 
 def test_01_malformed_row_paid_from_remaining_punches_needs_review(result, scenario):
@@ -64,9 +88,9 @@ def test_01_malformed_row_paid_from_remaining_punches_needs_review(result, scena
 def test_01_malformed_row_with_unpairable_remainder_counts_zero(inputs, rules):
     # E05 on 8 Sep: the OUT row is unreadable, leaving a lone IN that cannot be paired.
     lines = inputs.time_files["A"].read_text().splitlines()
-    out_row = "1005,2026-09-08,17:00,OUT"
+    out_row = "1005,2026-09-08,17:00,OUT,Checkout"
     assert out_row in lines
-    store_a = "\n".join(x if x != out_row else "1005,2026-09-08,1X:00,OUT" for x in lines) + "\n"
+    store_a = "\n".join(x if x != out_row else "1005,2026-09-08,1X:00,OUT,Checkout" for x in lines) + "\n"
     res = run_payroll(replace(inputs, time_files={**inputs.time_files, "A": io.StringIO(store_a)}), rules)
 
     bad = only(res.exceptions_for("MALFORMED_ROW", "E05"))
@@ -79,12 +103,19 @@ def test_01_malformed_row_with_unpairable_remainder_counts_zero(inputs, rules):
     assert line.regular_pay == D("1186.35")  # 71.90 h x $16.50: 8 Sep held at 0 h
 
 
-def test_01_malformed_row_outside_period_stays_info(result, scenario):
-    s = scenario(1, code="MALFORMED_ROW", severity="info")
-    bad = only(result.exceptions_for("MALFORMED_ROW", s["employee"]))
-    assert (bad.severity, bad.auto_resolved, bad.date) == ("info", True, s["date"])
-    assert bad.message.endswith("outside this pay period, no effect on pay")
-    assert result.line_for(s["employee"]).regular_pay == D("1116.00")  # unchanged, see scenario 4
+def test_01_rows_outside_the_period_are_skipped_quietly(inputs, rules, result):
+    # A bad row, an unknown identifier and a duplicate punch, all dated next to the period.
+    extra = ("1003,2026-09-06,18:3O,OUT\n"      # unreadable punch the day before
+             "9999,2026-09-21,09:00,IN\n"       # unknown employee the day after
+             "1005,2026-09-21,09:00,IN\n1005,2026-09-21,09:01,IN\n1005,2026-09-21,17:00,OUT\n")  # duplicate
+    store_a = inputs.time_files["A"].read_text() + extra
+    res = run_payroll(replace(inputs, time_files={**inputs.time_files, "A": io.StringIO(store_a)}), rules)
+    assert Counter(e.key for e in res.exceptions) == Counter(e.key for e in result.exceptions)
+    assert res.totals == result.totals
+    # Inside the period the same kinds of rows are still reported.
+    inside = store_a + "9999,2026-09-08,09:00,IN\n"
+    res = run_payroll(replace(inputs, time_files={**inputs.time_files, "A": io.StringIO(inside)}), rules)
+    assert only(res.exceptions_for("UNKNOWN_EMPLOYEE")).location_code == "A"
 
 
 def test_01_malformed_row_with_unreadable_date_needs_review(inputs, rules):

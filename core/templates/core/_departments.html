@@ -1,0 +1,18 @@
+{% load payroll_ui %}
+<section class="card">
+  <h2>Labor cost by department</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Department</th><th class="num">Hours</th><th class="num">Labor cost</th><th class="num">Share</th></tr></thead>
+      <tbody>
+      {% for d in departments %}
+        <tr><td>{{ d.name }}</td><td class="num">{{ d.hours|hours }}</td><td class="num">{{ d.gross|money }}</td><td class="num">{{ d.share }}%</td></tr>
+      {% empty %}
+        <tr><td colspan="4" class="muted">No labor cost yet.</td></tr>
+      {% endfor %}
+      </tbody>
+      <tfoot><tr><th>Total</th><td class="num">{{ department_hours|hours }}</td><td class="num"><strong>{{ department_gross|money }}</strong></td><td></td></tr></tfoot>
+    </table>
+  </div>
+  <p class="small muted">Labor cost is gross pay: regular + overtime + add-ons - absence deductions. The department comes from each shift's clock-in row; shifts without one are Unassigned.</p>
+</section>

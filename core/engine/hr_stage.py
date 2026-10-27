@@ -73,8 +73,12 @@ def rows_of(punches: Iterable[Punch]) -> list[tuple[str, int]]:
 
 # ---------------------------------------------------------------- punch cleanup
 
-def drop_duplicates(punches: list[Punch], window_minutes: int) -> tuple[list[Punch], list[PayrollException]]:
-    """Same kind (or any, when the export has no kind) within the window: keep the first."""
+def drop_duplicates(punches: list[Punch], window_minutes: int,
+                    period: Optional[Period] = None) -> tuple[list[Punch], list[PayrollException]]:
+    """Same kind (or any, when the export has no kind) within the window: keep the first.
+
+    Duplicates are dropped everywhere but only reported when dated inside ``period``.
+    """
     kept: list[Punch] = []
     found: list[PayrollException] = []
     window = timedelta(minutes=window_minutes)
@@ -87,6 +91,8 @@ def drop_duplicates(punches: list[Punch], window_minutes: int) -> tuple[list[Pun
             prev = kept[-1] if kept and kept[-1].employee_id == p.employee_id \
                 and kept[-1].location_code == p.location_code else None
             if prev and prev.kind == p.kind and p.timestamp - prev.timestamp <= window:
+                if period and not period.start <= p.timestamp.date() <= period.end:
+                    continue
                 found.append(exc.make(
                     "DUPLICATE_PUNCH",
                     f"{(p.kind or 'punch').upper()} at {hhmm(p.timestamp)} (row {p.source_row}) repeats "
@@ -566,9 +572,7 @@ def settle_bad_rows(
                                   f"is unknown: check this employee's punches", employee_id=bad.employee_id,
                                   location_code=bad.location_code, severity=exc.NEEDS_REVIEW, rows=bad.rows))
         elif not period.start <= bad.date <= period.end:
-            bad.message += ": outside this pay period, no effect on pay"
-            bad.resolution = "Row skipped"
-            found.append(bad)
+            continue  # belongs to another pay period: skipped quietly
         else:
             voided[bad.employee_id][(bad.location_code, bad.date)].append(bad)
 
@@ -616,7 +620,8 @@ def run_hr_stage(
     adjustments: Optional[Adjustments] = None,
     applied: Optional[dict[str, str]] = None,
 ) -> tuple[dict[str, EmployeeHR], list[PayrollException]]:
-    punches, found = drop_duplicates(punches, rules.duplicate_window_minutes)
+    punches, found = drop_duplicates(punches, rules.duplicate_window_minutes, period)
+    # A shift belongs to the day it started: keep only shifts that clock in inside the period.
     shifts = [s for s in build_shifts(punches, rules) if period.start <= s.date <= period.end]
     shifts, voided, settled = settle_bad_rows(bad_rows, shifts, period)
     found.extend(settled)

@@ -1,9 +1,12 @@
 import uuid
+from datetime import date
 from pathlib import Path
 
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
+
+from . import labels
 
 
 class Location(models.Model):
@@ -16,7 +19,7 @@ class Location(models.Model):
         ordering = ["code"]
 
     def __str__(self):
-        return f"{self.code} - {self.name}"
+        return f"Store {self.code} · {self.name}"
 
 
 class Employee(models.Model):
@@ -47,7 +50,17 @@ class PayPeriod(models.Model):
         ordering = ["-start_date"]
 
     def __str__(self):
-        return f"{self.start_date} to {self.end_date}"
+        return self.label
+
+    @property
+    def label(self) -> str:
+        """'Sep 7 to 20, 2026'."""
+        return labels.period_label(self.start_date, self.end_date, with_year=True)
+
+    @property
+    def short_label(self) -> str:
+        """'Sep 7 to 20'."""
+        return labels.period_label(self.start_date, self.end_date)
 
 
 class ScheduledShift(models.Model):
@@ -60,6 +73,10 @@ class ScheduledShift(models.Model):
     class Meta:
         ordering = ["date", "start"]
 
+    def __str__(self):
+        return (f"{self.employee} · Store {self.location.code} · {labels.day_date(self.date)} · "
+                f"{self.start:%H:%M} to {self.end:%H:%M}")
+
 
 class LeaveRecord(models.Model):
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="leaves")
@@ -67,6 +84,11 @@ class LeaveRecord(models.Model):
     leave_type = models.CharField(max_length=32)
     paid = models.BooleanField()
     informed = models.BooleanField(default=True)
+
+    def __str__(self):
+        notice = "" if self.informed else ", not informed"
+        return (f"{self.employee} · {labels.short_date(self.date)} · {self.leave_type} leave "
+                f"({'paid' if self.paid else 'unpaid'}{notice})")
 
 
 class PayAddOn(models.Model):
@@ -78,6 +100,9 @@ class PayAddOn(models.Model):
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     include_in_regular_rate = models.BooleanField(default=False)
 
+    def __str__(self):
+        return f"{self.employee} · {self.kind} {labels.money(self.amount)} · {labels.short_date(self.date)}"
+
 
 class LoanAdvance(models.Model):
     KINDS = [("loan", "Loan"), ("advance", "Advance")]
@@ -88,6 +113,10 @@ class LoanAdvance(models.Model):
     installment = models.DecimalField(max_digits=10, decimal_places=2)
     start_period = models.DateField()
     paid_to_date = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
+    def __str__(self):
+        return (f"{self.employee} · {self.kind} {labels.money(self.total)} · "
+                f"{labels.money(self.installment)} per period")
 
 
 class ImportBatch(models.Model):
@@ -105,6 +134,10 @@ class ImportBatch(models.Model):
     class Meta:
         ordering = ["location__code"]
 
+    def __str__(self):
+        return (f"Store {self.location.code} · {self.basename} · {self.period.short_label} · "
+                f"{self.row_count} rows")
+
     @property
     def basename(self) -> str:
         return Path(self.filename).name
@@ -116,10 +149,16 @@ class RawImportRow(models.Model):
     row_number = models.PositiveIntegerField()  # line number in the file (header is 1)
     raw = models.JSONField()  # {column: value as exported}
     parse_error = models.TextField(blank=True, default="")
+    # False for rows that belong to another pay period (exports spill a day past both edges).
+    in_period = models.BooleanField(default=True)
 
     class Meta:
         ordering = ["batch", "row_number"]
         constraints = [models.UniqueConstraint(fields=["batch", "row_number"], name="unique_raw_row")]
+
+    def __str__(self):
+        values = ", ".join(str(v) for v in self.raw.values())
+        return f"Store {self.batch.location.code} · row {self.row_number} · {values}"
 
 
 class DemoSandbox(models.Model):
@@ -135,7 +174,12 @@ class DemoSandbox(models.Model):
         ordering = ["-last_seen_at"]
 
     def __str__(self):
-        return f"Sandbox {self.id}"
+        seen = timezone.localtime(self.last_seen_at)
+        return f"Visitor copy {self.short_id} · last seen {seen:%b} {seen.day}, {seen:%H:%M}"
+
+    @property
+    def short_id(self) -> str:
+        return str(self.id)[:8]
 
 
 class PayrollRun(models.Model):
@@ -150,6 +194,8 @@ class PayrollRun(models.Model):
     finalized_at = models.DateTimeField(null=True, blank=True)
     rules_snapshot = models.JSONField(default=dict)
     totals = models.JSONField(default=dict)
+    # File-level notes (e.g. an extra column in a store export): shown on the Inputs screen, never counted.
+    file_notes = models.JSONField(default=list)
 
     class Meta:
         ordering = ["-created_at"]
@@ -162,8 +208,8 @@ class PayrollRun(models.Model):
         ]
 
     def __str__(self):
-        where = f"sandbox {self.sandbox_id}" if self.sandbox_id else "baseline"
-        return f"Run {self.pk} {self.period} ({self.status}, {where})"
+        where = f"Visitor copy {str(self.sandbox_id)[:8]}" if self.sandbox_id else "Baseline"
+        return f"{where} · {self.period} · {self.get_status_display().lower()}"
 
 
 class PayrollLineRecord(models.Model):
@@ -181,6 +227,7 @@ class PayrollLineRecord(models.Model):
     hours = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     overtime_hours = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     by_location = models.JSONField(default=dict)
+    by_department = models.JSONField(default=dict)  # {store: {department: {hours, pay fields, gross}}}
     trail = models.JSONField(default=list)
 
     class Meta:
@@ -193,6 +240,10 @@ class PayrollLineRecord(models.Model):
     @property
     def deductions(self):
         return self.penalties + self.loan_deductions + self.custom_deductions
+
+    def __str__(self):
+        return (f"{self.employee} · {self.run.period.short_label} · gross {labels.money(self.gross)} · "
+                f"net {labels.money(self.net)}")
 
 
 class PayrollExceptionRecord(models.Model):
@@ -221,7 +272,18 @@ class PayrollExceptionRecord(models.Model):
         ordering = ["id"]
 
     def __str__(self):
-        return f"{self.severity} {self.code}"
+        parts = [labels.code_title(self.code)]
+        if self.employee_id:
+            parts.append(str(self.employee))
+        if self.location_id:
+            parts.append(f"Store {self.location.code}")
+        if self.date:
+            parts.append(labels.short_date(self.date))
+        state = labels.SEVERITY_LABELS.get(self.severity, self.severity).lower()
+        if self.severity == "needs_review":
+            state += f" ({self.get_status_display().lower()})"
+        parts.append(state)
+        return " · ".join(parts)
 
 
 class ReviewDecision(models.Model):
@@ -249,4 +311,28 @@ class ReviewDecision(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.exception_key}: {self.action}"
+        code, employee_id, on, loc = (self.exception_key.split("|") + ["", "", "", ""])[:4]
+        parts = [labels.code_title(code)] + [p for p in (employee_id, f"Store {loc}" if loc else "") if p]
+        if on:
+            parts.append(labels.short_date(date.fromisoformat(on)))
+        parts.append(self.summary)
+        parts.append(f"visitor copy {str(self.sandbox_id)[:8]}" if self.sandbox_id else "baseline")
+        return " · ".join(parts)
+
+    @property
+    def summary(self) -> str:
+        """'approved as is', 'approved with 8.00 h', 'approved with Store A', ..."""
+        value = self.value or {}
+        if self.action != self.APPROVE_WITH_VALUE or not value:
+            return "approved as is"
+        if "hours" in value:
+            what = f"{value['hours']} h"
+        elif "location" in value:
+            what = f"Store {value['location']}"
+        elif "leave_type" in value:
+            what = f"{value['leave_type']} leave"
+        elif "amount" in value:
+            what = labels.money(value["amount"])
+        else:
+            what = ", ".join(f"{k} {v}" for k, v in value.items())
+        return f"approved with {what}"

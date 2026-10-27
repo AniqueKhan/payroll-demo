@@ -25,11 +25,17 @@
       No file received for this period. Nothing is estimated.
       <a href="{% url 'core:exceptions' %}#blocking">See the exception →</a></p>
   {% else %}
+    {% for note in s.notes %}
+      <p class="callout callout-note" role="note"><span class="tag tag-grey">File note</span> {{ note.message }}</p>
+    {% endfor %}
     <p class="muted small">
       Format <code>{{ s.location.export_format }}</code> · file <code>{{ s.batch.basename }}</code> ·
       {{ s.batch.row_count }} rows · columns as exported:
       {% for c in s.batch.columns %}<code class="{% if c in s.batch.unknown_columns %}col-unknown{% endif %}">{{ c }}</code>{% if c in s.batch.unknown_columns %} <span class="tag tag-amber">unknown column, ignored</span>{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}
     </p>
+    {% if s.skipped %}
+      <p class="small skipped-note">{{ s.skipped }} row{{ s.skipped|pluralize }} outside {{ period_label }} {{ s.skipped|pluralize:"was,were" }} skipped (shifts that belong to another pay period).</p>
+    {% endif %}
     <div class="table-wrap">
       <table class="raw">
         <thead>

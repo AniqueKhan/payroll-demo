@@ -13,6 +13,7 @@ from .base import Importer, RowError
 class StoreCImporter(Importer):
     format_name = "store_c"
     required_columns = ("Name", "Date", "In", "Out")
+    department_column = "Dept"
 
     def row_identifier(self, row):
         return row["Name"]

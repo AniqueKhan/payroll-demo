@@ -15,6 +15,12 @@ pytest
 
 `seed_demo --period YYYY-MM-DD` generates the demo for any pay period. The date is the period start and must fall on the rules' `period.week_start` (Monday); a date on any other day is refused, with the nearest valid dates suggested. The period length comes from `period.length_days` in the rules. Every planted scenario is placed relative to the start date, so it lands on the same weekday in every period. The totals and exceptions are the same in every period; only the dates move. Without `--period`, the demo uses Sep 7 to 20, 2026.
 
+**Bigger demos.** The 18 core employees and stores A, B and C are always there, so every planted scenario always appears. You can add more on top:
+- `--extra-employees N` adds clean filler staff (E19, E20, ...). They are hourly at $15.00 to $18.00, spread across all stores in turn, and work Monday to Friday with punches inside the grace period, so they raise no exceptions and no overtime.
+- `--stores N` (at least 3, at most 26) adds stores D, E, F and so on. Each extra store reuses the store_a, store_b and store_c formats in turn and has its own export file.
+
+Every store must deliver an export, so `--missing-store` works for extra stores too. The options combine with `--period`, and the same options always produce identical output. `seed_demo --extra-employees 200 --stores 10` and `run_payroll` take a few seconds. The Payroll screen has a search box (name or ID) and a home store filter.
+
 ## Settings
 
 Secrets and per-environment values live in `payroll/environment.py`, next to `settings.py`. That file is gitignored and imported at the end of `settings.py`. `settings.py` itself ships with an empty `SECRET_KEY`. Everything reads its key from `environment.py`: the screens, sessions and messages, and the test suite. For local development:
@@ -67,7 +73,13 @@ The demo story:
 - **Gross pay** = regular + overtime + add-ons - absence deductions.
 - **Net pay** = gross - penalties - loans - custom deductions.
 - **Loan cap.** The cap is a percentage of net pay before loans. For a leaver, the engine deducts the remaining balance up to that cap. Anything still owed is flagged as a final settlement.
-- **Unreadable rows.** A bad row for a known employee, dated inside the period, is raised as `needs_review`. If the employee's remaining punches for that day at that store pair cleanly, the day is paid from them and the reviewer confirms the lost punch wasn't a real break or extra shift. If they can't be paired, the day is counted as 0 h, with the remaining punches attached and the scheduled hours suggested. A row whose date can't be read is also `needs_review`. Rows dated outside the period stay `info` and have no effect on pay.
+- **Unreadable rows.** A bad row for a known employee, dated inside the period, is raised as `needs_review`. If the employee's remaining punches for that day at that store pair cleanly, the day is paid from them and the reviewer confirms the lost punch wasn't a real break or extra shift. If they can't be paired, the day is counted as 0 h, with the remaining punches attached and the scheduled hours suggested. A row whose date can't be read is also `needs_review`.
+- **Pay period boundaries.** A shift belongs to the day it started (its clock-in date). The importers read one day either side of the period, so shifts pair across both edges. Then only shifts that clock in inside the period are kept:
+  - A shift that starts the evening before the period belongs to the previous payroll. It is not counted, not flagged and not shown.
+  - A shift that starts on the last day is counted in full here, even though it ends the morning after.
+  - Rows from other dates that aren't part of such a shift are skipped quietly. The Inputs screen shows how many were skipped.
+- **Extra columns.** An export with a column the format doesn't use gets a plain-language file note at the top of that store's tab on the Inputs screen. The note is kept on the run (`PayrollRun.file_notes`), but it is not an exception and is never counted. A missing required column still makes the whole file unreadable (blocking).
+- **Labor cost by department.** Each export may carry a department column: `Dept` in store_a and store_c, `department` in store_b. A shift's department comes from its clock-in row; a missing or blank one is `Unassigned`. Each store's labor cost (regular + overtime + add-ons - absence deductions) is split across its departments by the hours worked in each, with rounding remainders kept, so department totals add up exactly to store totals and to gross. Each payroll line stores this split (`by_department`). The Overview, Payroll and employee screens show it overall and per store.
 - **Shifts at a store with no export.** The engine never turns these into absences. The `STORE_FILE_MISSING` blocking exception covers them.
 - **Finalizing.** `finalize` adds each loan deduction to `paid_to_date`, so whatever was capped carries into the next period. A finalized period cannot be re-run.
 
@@ -80,6 +92,6 @@ The demo story:
 
 ## Severities
 
-- `info`: a rule settled it.
+- `info`: a rule settled it. (File notes, such as an extra column, are not exceptions and don't appear in these counts.)
 - `needs_review`: a person must decide it (approve as is, or approve with a value) before finalizing.
 - `blocking`: the run cannot be finalized until the inputs are fixed and payroll is re-run.

@@ -110,7 +110,7 @@ def test_clear_decisions_resets_everything(period):
 def test_raw_rows_are_kept_with_parse_errors(period):
     rows = RawImportRow.objects.filter(batch__location__code="A")
     assert rows.count() == period.imports.get(location__code="A").row_count
-    bad = rows.get(row_number=36)
-    assert bad.raw == {"EmpID": "1002", "Date": "2026-09-09", "Time": "9:6O", "Type": "IN"}
+    bad = rows.get(row_number=37)
+    assert bad.raw == {"EmpID": "1002", "Date": "2026-09-09", "Time": "9:6O", "Type": "IN", "Dept": "Checkout"}
     assert "9:6O" in bad.parse_error
-    assert period.imports.get(location__code="C").unknown_columns == ["Dept"]
+    assert period.imports.get(location__code="C").unknown_columns == ["Badge"]

@@ -86,4 +86,4 @@ def test_trail_steps_carry_their_stage(result):
 def test_exception_rows_and_keys(result):
     ex = only(result.exceptions_for("MISSED_CLOCK_OUT", "E03"))
     assert ex.key == "MISSED_CLOCK_OUT|E03|2026-09-10|A"
-    assert ex.rows == [("A", 51)] and ex.context == {"suggested_hours": "8.00"}
+    assert ex.rows == [("A", 52)] and ex.context == {"suggested_hours": "8.00"}

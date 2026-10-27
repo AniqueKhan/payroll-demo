@@ -18,7 +18,7 @@ from .engine.config import DEFAULT_RULES_PATH, Rules, load_rules
 from .engine.exceptions import BLOCKING, INFO, NEEDS_REVIEW
 from .engine.explain import fmt_money
 from .engine.importers import get_importer
-from .engine.run import PayrollInputs, make_period
+from .engine.run import PayrollInputs, attribute_rows, make_period
 from .engine.run import run_payroll as run_engine
 
 
@@ -61,16 +61,17 @@ def value_kind(record: "m.PayrollExceptionRecord") -> Optional[str]:
 
 @transaction.atomic
 def seed_demo(missing_store: Optional[str] = None, output_dir: Optional[Path] = None,
-              period_start: Optional[date] = None) -> m.PayPeriod:
+              period_start: Optional[date] = None, extra_employees: int = 0, stores: int = 3) -> m.PayPeriod:
     """Generate the demo files for the period starting ``period_start`` (default: the demo's Sep 7, 2026) and
     load master data, schedules and inputs into the DB, replacing old data.
 
-    Raises ``generator.PeriodStartError`` before touching anything if the start is not on the rules'
-    week start day.
+    ``extra_employees`` adds clean filler staff and ``stores`` adds stores D, E, ... on top of the core demo.
+    Raises ``generator.PeriodStartError`` or ``generator.DemoOptionError`` before touching anything when an
+    option is invalid.
     """
     output_dir = Path(output_dir or generator.DEFAULT_OUTPUT)
     manifest = generator.generate(output_dir, missing_store, period_start or generator.DEFAULT_PERIOD_START,
-                                  load_rules(DEFAULT_RULES_PATH))
+                                  load_rules(DEFAULT_RULES_PATH), extra_employees=extra_employees, stores=stores)
 
     # Sandboxes hold runs and decisions computed from the old inputs: they would no longer match.
     for model in (m.DemoSandbox, m.PayrollRun, m.ImportBatch, m.ScheduledShift, m.LeaveRecord, m.PayAddOn, m.LoanAdvance,
@@ -117,6 +118,7 @@ def seed_demo(missing_store: Optional[str] = None, output_dir: Optional[Path] = 
         if not path.exists():
             continue  # missing store: no import batch, the engine raises a blocking exception
         store_raw_rows(locations[code], period, path, engine_employees)
+    mark_rows_in_period(period, rules)
     return period
 
 
@@ -134,12 +136,34 @@ def store_raw_rows(location: m.Location, period: m.PayPeriod, path: Path, employ
     header = [h.strip() for h in header]
     batch = m.ImportBatch.objects.create(
         location=location, period=period, filename=str(path), status="imported", row_count=len(body),
-        columns=header, unknown_columns=[c for c in header if c not in importer.required_columns])
+        columns=header, unknown_columns=[c for c in header if c not in importer.supported_columns])
     m.RawImportRow.objects.bulk_create(
         m.RawImportRow(batch=batch, row_number=n, raw=dict(zip(header, values)),
                        parse_error="; ".join(errors.get(n, [])))
         for n, values in enumerate(body, start=2))
     return batch
+
+
+def mark_rows_in_period(period: m.PayPeriod, rules: Rules) -> None:
+    """Flag raw rows that belong to this payroll, for the Inputs screen.
+
+    A row that is part of a shift belongs where the shift started (the clock-out of an overnight shift on
+    the last day is shown; the clock-out of one that started the evening before is not). Any other row goes
+    by its own date. Rows with an unreadable date stay visible, because they are raised for review.
+    """
+    shift_rows = attribute_rows(build_inputs(period, rules), rules)
+    outside = []
+    for batch in period.imports.select_related("location"):
+        importer = get_importer(batch.location.export_format)(batch.location.code, [])
+        for row in batch.raw_rows.all():
+            belongs = shift_rows.get((batch.location.code, row.row_number))
+            if belongs is None:
+                on = importer.safe_row_date({k: (v or "").strip() for k, v in row.raw.items()})
+                belongs = on is None or period.start_date <= on <= period.end_date
+            if not belongs:
+                outside.append(row.pk)
+    for i in range(0, len(outside), 500):  # chunks stay under SQLite's variable limit
+        m.RawImportRow.objects.filter(pk__in=outside[i:i + 500]).update(in_period=False)
 
 
 # ---------------------------------------------------------------- ORM -> engine
@@ -223,8 +247,10 @@ def run_payroll(period: m.PayPeriod, rules_path: Optional[Path] = None,
     result = run_engine(build_inputs(period, rules), rules, decisions_to_adjustments(period, sandbox))
 
     runs(period, sandbox).filter(status=m.PayrollRun.DRAFT).delete()
-    run = m.PayrollRun.objects.create(period=period, sandbox=sandbox, rules_snapshot=rules.raw,
-                                      totals=_json(result.totals))
+    run = m.PayrollRun.objects.create(
+        period=period, sandbox=sandbox, rules_snapshot=rules.raw, totals=_json(result.totals),
+        file_notes=[{"location": n.location_code, "code": n.code, "message": n.message,
+                     "columns": n.context.get("columns", [])} for n in result.notes])
     employees = {e.employee_id: e for e in m.Employee.objects.all()}
     locations = {x.code: x for x in m.Location.objects.all()}
     m.PayrollLineRecord.objects.bulk_create(
@@ -234,7 +260,8 @@ def run_payroll(period: m.PayPeriod, rules_path: Optional[Path] = None,
             penalties=line.penalties, absence_deductions=line.absence_deductions,
             loan_deductions=line.loan_deductions, custom_deductions=line.custom_deductions,
             gross=line.gross, net=line.net, hours=line.hours, overtime_hours=line.ot_hours,
-            by_location=_json(line.by_location), trail=[s.to_dict() for s in line.trail],
+            by_location=_json(line.by_location), by_department=_json(line.by_department),
+            trail=[s.to_dict() for s in line.trail],
         )
         for line in result.lines)
     m.PayrollExceptionRecord.objects.bulk_create(
