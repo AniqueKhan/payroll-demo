@@ -19,6 +19,7 @@ CODE_TITLES = {
     "OVERNIGHT_SHIFT": "Overnight shift",
     "LATE_ARRIVAL": "Late arrival",
     "HALF_DAY": "Half day",
+    "PARTIAL_DAY": "Partial day",
     "ABSENCE_INFORMED": "Absence with leave record",
     "ABSENCE_UNINFORMED": "Absence without notice",
     "UNKNOWN_LEAVE_TYPE": "Unknown leave type",

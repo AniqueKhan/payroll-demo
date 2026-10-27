@@ -48,7 +48,7 @@ def test_01_unknown_column_is_a_file_note_not_an_exception(result, scenario):
     assert (note.code, note.location_code, note.message) == ("UNKNOWN_COLUMN", s["location"], DEPT_NOTE)
     assert note.context == {"columns": ["Badge"]}
     assert not result.exceptions_for("UNKNOWN_COLUMN")
-    assert result.totals["exceptions_by_severity"] == {"needs_review": 6, "info": 14, "attendance": 2}
+    assert result.totals["exceptions_by_severity"] == {"needs_review": 6, "info": 13, "attendance": 3}
 
 
 def test_01_several_extra_columns_make_one_note(inputs):
@@ -231,12 +231,23 @@ def test_07_late_within_grace_is_not_penalized(result, scenario):
 
 # 8 -------------------------------------------------------------------------------------------
 
-def test_08_half_day_deducts_half_daily_rate(result, scenario):
+def test_08_salaried_partial_day_is_an_attendance_item(result, scenario):
     s = scenario(8)
-    ex = only(result.exceptions_for("HALF_DAY", s["employee"]))
-    assert (ex.severity, ex.date) == ("info", s["date"])
+    ex = only(result.exceptions_for(s["code"], s["employee"]))
+    assert (ex.severity, ex.date) == (s["severity"], s["date"])
+    assert not result.exceptions_for("HALF_DAY")
     line = result.line_for(s["employee"])
     assert line.absence_deductions == D(s["deduction"])
+    assert line.gross == D("2000.00")
+
+
+def test_08_half_day_deduction_when_switched_on(inputs, rules, scenario):
+    s = scenario(8)
+    res = run_payroll(inputs, rules.with_changes(salaried_partial_day_deduction=True))
+    ex = only(res.exceptions_for(s["code_when_enabled"], s["employee"]))
+    assert (ex.severity, ex.date) == ("info", s["date"])
+    line = res.line_for(s["employee"])
+    assert line.absence_deductions == D(s["deduction_when_enabled"])
     assert line.gross == D("1900.00")
 
 

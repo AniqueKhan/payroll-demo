@@ -49,8 +49,8 @@ def test_finalize_only_after_all_six_have_decisions_and_locks_until_reopened(per
     run = approve_all(period)
     assert period.decisions.count() == 6
     assert set(needs_review(run).values_list("status", flat=True)) == {"approved"}
-    # The two attendance items have no decision and never block finalizing.
-    assert run.exceptions.filter(severity="attendance").count() == 2
+    # The three attendance items have no decision and never block finalizing.
+    assert run.exceptions.filter(severity="attendance").count() == 3
     finalized = services.finalize(period)
     assert finalized.status == PayrollRun.FINALIZED and finalized.finalized_at is not None
 

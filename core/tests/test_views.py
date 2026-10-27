@@ -69,9 +69,9 @@ def test_unknown_column_is_a_note_on_the_store_tab_not_an_exception(client, peri
         html = client.get(url(page)).content.decode()
         assert "Badge" not in html and "Unexpected column" not in html
     overview = client.get(url("overview")).content.decode()
-    assert '<span class="pill pill-info">Handled by rule</span> <strong>14</strong>' in overview
+    assert '<span class="pill pill-info">Handled by rule</span> <strong>13</strong>' in overview
     queue = client.get(url("exceptions")).content.decode()
-    assert '<span class="pill pill-info">Handled by rule</span> <span class="count">14</span>' in queue
+    assert '<span class="pill pill-info">Handled by rule</span> <span class="count">13</span>' in queue
 
 
 def test_exceptions_queue_shows_forms_with_suggested_values(client, period):
@@ -86,7 +86,7 @@ def test_exceptions_queue_shows_forms_with_suggested_values(client, period):
 def test_payroll_lists_everyone_with_markers_and_totals(client, period):
     html = client.get(url("payroll")).content.decode()
     assert html.count('class="rowlink"') == 18
-    assert "Needs review" in html and "$24,341.99" in html
+    assert "Needs review" in html and "$24,441.99" in html
 
 
 def test_decide_via_post_updates_totals_and_confirms(client, period):
@@ -96,7 +96,7 @@ def test_decide_via_post_updates_totals_and_confirms(client, period):
     html = r.content.decode()
     assert "Approved with value: Missed clock-out. 5 items still need review." in html
     assert "Your copy" in html and "Start over" in html
-    assert D(my_run(client, period).totals["gross"]) == D("24341.99") + D("124.00")
+    assert D(my_run(client, period).totals["gross"]) == D("24441.99") + D("124.00")
     assert "Reviewer adjustment" in client.get(url("employee", employee_id="E03")).content.decode()
 
 

@@ -68,6 +68,11 @@ class Rules:
         return to_decimal(self.raw["half_day"]["threshold_fraction"])
 
     @property
+    def salaried_partial_day_deduction(self) -> bool:
+        """Deduct half a day from exempt salaried pay for a partial day (off by default)."""
+        return bool(self.raw.get("salaried_partial_day_deduction", False))
+
+    @property
     def standard_workdays(self) -> set[int]:
         return {WEEKDAYS.index(d[:3].lower()) for d in self.raw["absence"]["standard_workdays"]}
 

@@ -14,7 +14,7 @@ from typing import Iterable, Optional
 
 from . import exceptions as exc
 from .config import Rules
-from .explain import allocate, fmt_hours, fmt_money, money
+from .explain import allocate, fmt_hours, fmt_money, money, round_hours
 from .types import (
     ZERO, Adjustments, Employee, LeaveRecord, PayrollException, PayrollLine, Period, Punch,
     ScheduledShift, Shift, exception_key, minutes_to_hours,
@@ -65,6 +65,11 @@ def store(code: str) -> str:
 
 def hhmm(dt) -> str:
     return dt.strftime("%H:%M") if dt else "--:--"
+
+
+def plain_hours(value: Decimal) -> str:
+    """Hours without trailing zeros: '3.5', '9'."""
+    return f"{round_hours(value).normalize():f}"
 
 
 def day_label(d: date) -> str:
@@ -412,13 +417,27 @@ class _EmployeeRun:
                           rows=rows_of(first.raw_punches[:1]))
             worked = sum((s.hours for s in day), ZERO)
             if not self.hourly and worked < sched.hours * self.rules.half_day_threshold:
-                deduction = money(self.daily_rate / 2)
-                self.deduct_absence(deduction, f"Half day {sched.date}", f"worked {fmt_hours(worked)} h < "
-                                    f"{self.rules.half_day_threshold} x {fmt_hours(sched.hours)} h scheduled: "
-                                    f"0.5 x {fmt_money(self.daily_rate)} = {fmt_money(deduction)}", sched.date)
-                self.flag("HALF_DAY", f"Worked {fmt_hours(worked)} h of {fmt_hours(sched.hours)} h scheduled",
-                          loc=sched.location_code, on=sched.date, resolution=f"Deducted {fmt_money(deduction)}",
-                          rows=rows_of(p for s in day for p in s.raw_punches))
+                self.partial_day(sched, day, worked)
+
+    def partial_day(self, sched: ScheduledShift, day: list[Shift], worked: Decimal) -> None:
+        """A salaried short day. Exempt pay can't be reduced for a partial-day absence unless the rules say so."""
+        rows = rows_of(p for s in day for p in s.raw_punches)
+        if self.rules.salaried_partial_day_deduction:
+            deduction = money(self.daily_rate / 2)
+            self.deduct_absence(deduction, f"Half day {sched.date}", f"worked {fmt_hours(worked)} h < "
+                                f"{self.rules.half_day_threshold} x {fmt_hours(sched.hours)} h scheduled: "
+                                f"0.5 x {fmt_money(self.daily_rate)} = {fmt_money(deduction)}", sched.date)
+            self.flag("HALF_DAY", f"Worked {fmt_hours(worked)} h of {fmt_hours(sched.hours)} h scheduled",
+                      loc=sched.location_code, on=sched.date, resolution=f"Deducted {fmt_money(deduction)}",
+                      rows=rows)
+            return
+        self.line.step(f"Partial day {sched.date}", f"worked {fmt_hours(worked)} h of {fmt_hours(sched.hours)} h "
+                       f"scheduled: no deduction. Partial-day absences can't be deducted from exempt salaried "
+                       f"pay (rules: salaried_partial_day_deduction is off)", None, date=sched.date)
+        self.flag("PARTIAL_DAY", f"{self.who} worked {plain_hours(worked)} of {plain_hours(sched.hours)} scheduled "
+                  f"hours on {day_label(sched.date)}. Pay not reduced: partial-day absences can't be deducted from "
+                  f"exempt salaried pay. Worth a conversation, or recording it against paid leave.",
+                  loc=sched.location_code, on=sched.date, resolution="No deduction: exempt salaried pay", rows=rows)
 
     def deduct_absence(self, amount: Decimal, label: str, formula: str, on: date) -> None:
         self.line.absence_deductions += amount

@@ -5,7 +5,7 @@ from decimal import Decimal as D
 import pytest
 
 EXPECTED_BY_STORE = {
-    "A": {"hours": D("555.80"), "gross": D("9572.09")},
+    "A": {"hours": D("555.80"), "gross": D("9672.09")},
     "B": {"hours": D("416.46"), "gross": D("7321.39")},
     "C": {"hours": D("417.02"), "gross": D("7448.51")},
 }
@@ -14,16 +14,16 @@ EXPECTED_TOTALS = {
     "overtime_pay": D("107.59"),
     "addons": D("190.00"),
     "penalties": D("0.00"),
-    "absence_deductions": D("320.00"),
+    "absence_deductions": D("220.00"),
     "loan_deductions": D("626.00"),
-    "custom_deductions": D("1001.08"),
-    "gross": D("24341.99"),
-    "net": D("22714.91"),
+    "custom_deductions": D("1005.58"),
+    "gross": D("24441.99"),
+    "net": D("22810.41"),
 }
-EXPECTED_BY_SEVERITY = {"needs_review": 6, "info": 14, "attendance": 2}
+EXPECTED_BY_SEVERITY = {"needs_review": 6, "info": 13, "attendance": 3}
 EXPECTED_BY_CODE = {
     "ABSENCE_INFORMED": 2, "ABSENCE_UNINFORMED": 1, "ADDON_OT_RECALC": 1, "BLENDED_RATE_OVERTIME": 1,
-    "CUSTOM_RULE_APPLIED": 2, "DUPLICATE_PUNCH": 1, "EXIT_FINAL_SETTLEMENT": 1, "HALF_DAY": 1,
+    "CUSTOM_RULE_APPLIED": 2, "DUPLICATE_PUNCH": 1, "EXIT_FINAL_SETTLEMENT": 1, "PARTIAL_DAY": 1,
     "LATE_ARRIVAL": 1, "LOAN_CAPPED": 1, "LOAN_DEDUCTED": 1, "MALFORMED_ROW": 1, "MISSED_CLOCK_OUT": 1,
     "MULTI_LOCATION_OVERTIME": 2, "NEW_HIRE_PRORATED": 1, "ODD_PUNCH_COUNT": 1, "OVERNIGHT_SHIFT": 2,
     "WRONG_LOCATION": 1,

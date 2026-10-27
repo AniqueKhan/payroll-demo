@@ -35,7 +35,7 @@ def assert_departments_add_up(res):
 def test_department_totals_add_up_to_store_totals_and_gross(result):
     assert_departments_add_up(result)
     assert set(result.totals["by_department"]) == {"Checkout", "Floor", "Stockroom", "Unassigned"}
-    assert result.totals["gross"] == D("24341.99")
+    assert result.totals["gross"] == D("24441.99")
 
 
 def test_department_totals_add_up_with_extra_staff_and_stores(tmp_path, rules):

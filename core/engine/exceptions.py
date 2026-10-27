@@ -36,6 +36,7 @@ CODES: dict[str, tuple[str, str]] = {
     # Attendance (scenarios 7-9, 11)
     "LATE_ARRIVAL": (ATTENDANCE, "Late arrival"),
     "HALF_DAY": (INFO, "Half day deduction applied"),
+    "PARTIAL_DAY": (ATTENDANCE, "Partial day"),
     "ABSENCE_INFORMED": (INFO, "Absence covered by a leave record"),
     "ABSENCE_UNINFORMED": (ATTENDANCE, "Absence without notice"),
     "UNKNOWN_LEAVE_TYPE": (NEEDS_REVIEW, "Leave type not in rules"),

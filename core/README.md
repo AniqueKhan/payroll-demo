@@ -35,7 +35,7 @@ ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
 Then run `python manage.py runserver` and open http://127.0.0.1:8000/.
 
 The demo story:
-1. **Overview** shows that 6 items need review, and 2 attendance items to discuss.
+1. **Overview** shows that 6 items need review, and 3 attendance items to discuss.
 2. **Inputs** shows each store's raw export. Flagged rows link to their exception.
 3. **Exceptions** is where you resolve each item. Approve it as is, or approve it with a value: hours, a store, a leave type, or a loan amount.
 4. Totals update after every decision.
@@ -56,7 +56,7 @@ The demo story:
 |------|--------------|
 | `engine/` | Pure Python, no Django. Dataclasses in, `PayrollResult` out |
 | `engine/importers/` | One adapter per export format. All of them normalize to `Punch` |
-| `engine/hr_stage.py` | Dedupe and pair punches into shifts, then lates, half days, absences, store mismatches and weekly overtime |
+| `engine/hr_stage.py` | Dedupe and pair punches into shifts, then lates, partial days, absences, store mismatches and weekly overtime |
 | `engine/finance_stage.py` | Add-ons (with OT recalculation), gross pay, loans and advances, final pay |
 | `engine/custom_rules.py` | Registry of client-configured deductions (`percent_of_gross`, `table_lookup`) |
 | `engine/run.py` | `run_payroll(inputs, rules, adjustments)` orchestrator |
@@ -69,6 +69,7 @@ The demo story:
 ## Pay calculation
 
 - **Hourly pay.** Straight time is paid at each store's own rate. Overtime is worked out per workweek, with hours added up across all stores. The premium is `(multiplier - 1) x weighted average regular rate x OT hours`. The weighted rate keeps full `Decimal` precision. Only the premium is rounded, half up to cents. The trail shows the rate to cents for display, and spells the premium out as `(earnings / hours)` so it can be checked by hand. Each week's premium is split across stores in proportion to the hours worked there.
+- **Salaried partial days.** Exempt salaried pay can't be reduced for a partial-day absence. When salaried staff work less than `half_day.threshold_fraction` of their scheduled hours, the day becomes a "Partial day" attendance item with no deduction, and the trail says why. Set `salaried_partial_day_deduction: true` in the rules to deduct half a day instead (the old behaviour). A full-day absence without notice is still deducted.
 - **Salaried pay.** Salaried staff are exempt from overtime. Daily rate = `salary_per_period / standard working days in the period`. New hires and leavers are prorated by the days they were scheduled to work while employed.
 - **Gross pay** = regular + overtime + add-ons - absence deductions.
 - **Net before taxes** = gross - penalties - loans - custom deductions. Every screen, the trail and `run_payroll` use this label. The engine calculates no taxes: federal, state and payroll tax withholding is left to the payroll provider (for example ADP, Gusto or Paychex), which takes these checked numbers as its input.
@@ -97,4 +98,4 @@ The demo story:
 - `info`: a rule settled it. (File notes, such as an extra column, are not exceptions and don't appear in these counts.)
 - `needs_review`: a person must decide it (approve as is, or approve with a value) before finalizing.
 - `blocking`: the run cannot be finalized until the inputs are fixed and payroll is re-run.
-- `attendance` (shown as "Attendance to discuss"): late arrivals and absences without notice. They never block finalizing and aren't counted with needs review or info; the Overview gives their own count and the Exceptions screen lists them in their own section below the pay items. Each one carries a running count for the employee, such as "2nd late arrival this period". An absence without notice still deducts the day's pay for salaried staff; the item is there so someone follows up with the employee.
+- `attendance` (shown as "Attendance to discuss"): late arrivals, absences without notice and salaried partial days. They never block finalizing and aren't counted with needs review or info; the Overview gives their own count and the Exceptions screen lists them in their own section below the pay items. Each one carries a running count for the employee, such as "2nd late arrival this period". An absence without notice still deducts the day's pay for salaried staff; the item is there so someone follows up with the employee.

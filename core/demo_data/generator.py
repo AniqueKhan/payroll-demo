@@ -307,9 +307,10 @@ def apply_scenarios(plan: Plan, shifts: list[dict]) -> tuple[list[dict], dict]:
            penalty_when_enabled="5.00")
     find("E05", d(8))["in"] = at(8, "09:06")
     record(7, "E05", d(8), "A", code=None, minutes_late=6, penalty="0.00", note="within grace")
-    # 8: salaried half day
+    # 8: salaried partial day (exempt pay is not reduced unless salaried_partial_day_deduction is on)
     find("E01", d(2))["out"] = at(2, "11:30")
-    record(8, "E01", d(2), "A", code="HALF_DAY", deduction="100.00")
+    record(8, "E01", d(2), "A", code="PARTIAL_DAY", severity="attendance", worked="3.50", scheduled="9.00",
+           deduction="0.00", code_when_enabled="HALF_DAY", deduction_when_enabled="100.00")
     # 9: absences: uninformed (salaried), informed paid (hourly), informed unpaid (hourly)
     remove("E07", d(10))
     record(9, "E07", d(10), "B", code="ABSENCE_UNINFORMED", severity="attendance", deduction="220.00",

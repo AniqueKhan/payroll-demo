@@ -27,9 +27,9 @@ def penalties_on(inputs, rules):
 
 def test_attendance_items_have_their_own_group(result):
     counts = result.totals["exceptions_by_severity"]
-    assert counts == {"needs_review": 6, "info": 14, "attendance": 2}
+    assert counts == {"needs_review": 6, "info": 13, "attendance": 3}
     assert sorted(e.code for e in result.exceptions if e.severity == "attendance") == \
-        ["ABSENCE_UNINFORMED", "LATE_ARRIVAL"]
+        ["ABSENCE_UNINFORMED", "LATE_ARRIVAL", "PARTIAL_DAY"]
 
 
 def test_uninformed_absence_still_deducts_the_day(result):
@@ -53,13 +53,13 @@ def test_penalties_off_by_default_raise_net_by_the_penalty(result, penalties_on)
 
 def test_penalties_on_reproduce_the_previous_numbers(penalties_on):
     totals = penalties_on.totals
-    assert (totals["gross"], totals["net"], totals["penalties"]) == (D("24341.99"), D("22684.91"), D("30.00"))
+    assert (totals["gross"], totals["net"], totals["penalties"]) == (D("24441.99"), D("22780.41"), D("30.00"))
     assert (penalties_on.line_for("E07").net, penalties_on.line_for("E02").net) == (D("1865.90"), D("1216.12"))
     assert only(penalties_on.exceptions_for("LATE_ARRIVAL", "E02")).message.endswith("Late penalty $5.00.")
     assert only(penalties_on.exceptions_for("ABSENCE_UNINFORMED", "E07")).message.endswith(
         "One day's pay deducted ($220.00). Absence penalty $25.00.")
     # Penalties never move items out of the attendance group.
-    assert totals["exceptions_by_severity"] == {"needs_review": 6, "info": 14, "attendance": 2}
+    assert totals["exceptions_by_severity"] == {"needs_review": 6, "info": 13, "attendance": 3}
 
 
 def test_running_count_with_two_late_arrivals(inputs, rules):
@@ -105,9 +105,9 @@ def test_net_before_taxes_in_the_cli(period):
 
 def test_attendance_items_are_counted_apart_and_shown_below_pay_items(client, period):
     overview = client.get(reverse("core:overview")).content.decode()
-    assert "2 attendance items to discuss" in overview
+    assert "3 attendance items to discuss" in overview
     assert "6 items need your review" in overview
-    assert '<span class="pill pill-info">Handled by rule</span> <strong>14</strong>' in overview
+    assert '<span class="pill pill-info">Handled by rule</span> <strong>13</strong>' in overview
     queue = client.get(reverse("core:exceptions")).content.decode()
     assert ATTENDANCE_INTRO in queue
     section = queue.split('id="attendance"')[1]
@@ -121,7 +121,7 @@ def test_attendance_items_never_block_finalizing(period):
     for key in run.exceptions.filter(severity="needs_review").values_list("exception_key", flat=True):
         services.decide(period, key, "approve")
     run = services.current_run(period)
-    assert run.exceptions.filter(severity="attendance").count() == 2
+    assert run.exceptions.filter(severity="attendance").count() == 3
     assert services.finalize(period).status == "finalized"
 
 

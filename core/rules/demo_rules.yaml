@@ -32,8 +32,13 @@ late:
   grace_minutes: 10
   penalty_per_late: "5.00"           # charged only when attendance_penalties_enabled is true
 
+# Exempt salaried staff can't have partial-day absences deducted from their pay. By default a short day
+# (worked < half_day.threshold_fraction of the scheduled hours) is an attendance item to discuss, with no
+# deduction. Switch on to deduct half a day instead.
+salaried_partial_day_deduction: false
+
 half_day:
-  threshold_fraction: "0.5"       # salaried: worked < 50% of scheduled hours -> deduct half a day
+  threshold_fraction: "0.5"       # salaried: worked < 50% of scheduled hours is a partial day
 
 absence:
   # Salaried daily rate = salary_per_period / scheduled working days in the period
