@@ -106,6 +106,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 AUTH_USER_MODEL = 'user_management.User'
 
 # Media (user-uploaded files — raw videos, processed outputs, downloaded stock clips)
