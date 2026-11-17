@@ -107,11 +107,25 @@ def legacy_run_url(request, rest=""):
     """Old ``/runs/<id>/...`` links go to the same page of the visitor's own view. The id is ignored."""
     match = LEGACY_PAGE.match(rest)
     if not match:
-        return redirect("core:overview")
+        return redirect("core:start")
     page, employee_id = match.groups()
     if employee_id:
         return redirect("core:employee", employee_id=employee_id)
     return redirect(f"core:{page}" if page else "core:overview")
+
+
+@with_run
+def start(request, run):
+    """The landing page: what the demo is, the problem it solves, how it works and what to try first."""
+    ctx = base_context(run, "start")
+    totals = run.totals
+    ctx.update({
+        "totals": totals,
+        "store_count": len(totals.get("by_location", {})),
+        "rule_count": run.exceptions.filter(severity="info").count(),
+        "review_count": run.exceptions.filter(severity="needs_review").count(),
+    })
+    return render(request, "core/start.html", ctx)
 
 
 @with_run

@@ -1,0 +1,96 @@
+{% extends "core/base.html" %}
+{% load payroll_ui %}
+{% block title %}How it works{% endblock %}
+{% block content %}
+<section class="hero">
+  <p class="eyebrow">Live demo by Pynabyte</p>
+  <h1>Payroll for {{ store_count }} stores, checked before anyone gets paid</h1>
+  <p class="lead">This is a working system, not a slideshow. It takes each store's time clock file, does the checking
+    a person would normally do by hand in Excel, and only asks a human about the things it can't be sure of.</p>
+  <div class="hero-actions">
+    <a class="btn" href="{% url 'core:exceptions' %}">Try the review queue</a>
+    <a class="btn btn-secondary" href="{% url 'core:overview' %}">See the payroll overview</a>
+  </div>
+</section>
+
+<section class="card problem">
+  <h2>The problem it solves</h2>
+  <p>Every two weeks, someone collects time clock exports from each store. Every store's file looks different.
+    Some punches are missing, some have typos, people clock in at the wrong store, and overtime has to be worked
+    out across weeks. Today that means hours of checking line by line in a spreadsheet, and mistakes still get through
+    to people's pay.</p>
+</section>
+
+<h2 class="section-title">How it works, in 4 steps</h2>
+<ol class="steps">
+  <li class="step">
+    <span class="step-num" aria-hidden="true">1</span>
+    <h3>Files come in as they are</h3>
+    <p>Each store sends its export in its own format. Nobody has to clean it up first.</p>
+    <a href="{% url 'core:inputs' %}">See the raw files →</a>
+  </li>
+  <li class="step">
+    <span class="step-num" aria-hidden="true">2</span>
+    <h3>Every row gets checked</h3>
+    <p>The pay rules are applied: rates per store, breaks, overtime. Simple, safe fixes are handled by rule
+      ({{ rule_count }} in this period) and written down so you can see them.</p>
+    <a href="{% url 'core:exceptions' %}#info">See what was fixed by rule →</a>
+  </li>
+  <li class="step">
+    <span class="step-num" aria-hidden="true">3</span>
+    <h3>A person decides the unsure parts</h3>
+    <p>Only {{ review_count }} items go to the review queue. Each one says what looks wrong, why, and what the likely
+      fix is. You approve with one click or enter the right value.</p>
+    <a href="{% url 'core:exceptions' %}">Open the review queue →</a>
+  </li>
+  <li class="step">
+    <span class="step-num" aria-hidden="true">4</span>
+    <h3>Payroll is ready to run</h3>
+    <p>One line per employee, with every amount explained step by step. Nothing is final until a person signs off.
+      The checked numbers then go to the payroll provider.</p>
+    <a href="{% url 'core:payroll' %}">See the payroll →</a>
+  </li>
+</ol>
+
+<div class="grid two">
+  <section class="card">
+    <h2>Try it in 3 minutes</h2>
+    <ol class="try-list">
+      <li>Open the <a href="{% url 'core:exceptions' %}">review queue</a> and decide one item.</li>
+      <li>Go back to the <a href="{% url 'core:overview' %}">overview</a> and watch the totals update.</li>
+      <li>Open any employee on the <a href="{% url 'core:payroll' %}">payroll</a> page to see exactly how their pay was worked out.</li>
+    </ol>
+    <p class="muted small">Your decisions only change your own private copy. Other visitors always start from the clean demo, and you can start over any time.</p>
+  </section>
+
+  <section class="card">
+    <h2>What's in this demo</h2>
+    <ul class="facts">
+      <li><strong>{{ totals.employees }}</strong> employees across <strong>{{ store_count }}</strong> stores</li>
+      <li>A two week pay period, {{ period.start_date|date:"M j" }} to {{ period.end_date|date:"M j, Y" }}</li>
+      <li><strong>{{ rule_count }}</strong> problems fixed by rule, <strong>{{ review_count }}</strong> left for a person</li>
+      <li>All names and numbers are made up</li>
+    </ul>
+  </section>
+</div>
+
+<section class="card">
+  <h2>What the words on the screens mean</h2>
+  <dl class="glossary">
+    <div><dt>Gross</dt><dd>Total pay earned before anything is taken off: regular hours, overtime and extras.</dd></div>
+    <div><dt>Net before taxes</dt><dd>Gross minus deductions like loan repayments. Taxes are worked out later by the payroll provider.</dd></div>
+    <div><dt><span class="pill pill-blocking">Blocking</span></dt><dd>Something is missing or broken, so payroll can't be finished until it's fixed.</dd></div>
+    <div><dt><span class="pill pill-needs_review">Needs review</span></dt><dd>The system has a likely answer but isn't sure, so a person decides.</dd></div>
+    <div><dt><span class="pill pill-info">Handled by rule</span></dt><dd>A known, safe fix was applied automatically and logged.</dd></div>
+    <div><dt><span class="pill pill-attendance">Attendance to discuss</span></dt><dd>Lateness or absences worth a conversation. They never block payroll.</dd></div>
+  </dl>
+</section>
+
+<section class="card closing">
+  <h2>Not just payroll</h2>
+  <p>The same approach works for any repetitive back office work with messy inputs, like client bank statements,
+    invoices and bookkeeping entries: files come in as they are, everything gets checked, and only the unsure items
+    reach your team.</p>
+  <p><a class="btn" href="https://pynabyte.com" target="_blank" rel="noopener">Talk to Pynabyte</a></p>
+</section>
+{% endblock %}

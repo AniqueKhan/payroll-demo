@@ -12,7 +12,7 @@
 <body>
   <header class="site-header">
     <div class="wrap header-inner">
-      <a class="brand" href="{% url 'core:overview' %}">Multi-store payroll <span class="muted">demo</span></a>
+      <a class="brand" href="{% url 'core:start' %}">Multi-store payroll <span class="muted">demo</span></a>
       {% if run %}
       <div class="run-meta">
         <span class="period">{{ period.start_date|date:"M j" }} to {{ period.end_date|date:"M j, Y" }}</span>
@@ -27,6 +27,7 @@
     </div>
     {% if run %}
     <nav class="wrap nav" aria-label="Main">
+      <a href="{% url 'core:start' %}" {% if active == 'start' %}aria-current="page"{% endif %}>How it works</a>
       <a href="{% url 'core:overview' %}" {% if active == 'overview' %}aria-current="page"{% endif %}>Overview</a>
       <a href="{% url 'core:inputs' %}" {% if active == 'inputs' %}aria-current="page"{% endif %}>Inputs</a>
       <a href="{% url 'core:exceptions' %}" {% if active == 'exceptions' %}aria-current="page"{% endif %}>
