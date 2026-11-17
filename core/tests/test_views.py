@@ -26,9 +26,17 @@ def my_run(client, period):
     return services.current_run(period, DemoSandbox.objects.get(pk=client.session["sandbox_id"]))
 
 
-def test_root_is_the_overview(client, period):
-    r = client.get("/")
-    assert r.status_code == 200 and b"Payroll overview" in r.content
+def test_root_is_the_how_it_works_page(client, period):
+    html = client.get("/").content.decode()
+    assert "How it works, in 4 steps" in html and "The problem it solves" in html
+    assert "18</strong> employees across <strong>3</strong> stores" in html
+    assert "Only 6 items go to the review queue" in html
+    assert url("overview") in html and url("exceptions") in html
+
+
+def test_overview_links_back_to_how_it_works(client, period):
+    r = client.get(url("overview"))
+    assert r.status_code == 200 and b"Payroll overview" in r.content and b"New here?" in r.content
 
 
 def test_empty_page_without_a_run(client, db):

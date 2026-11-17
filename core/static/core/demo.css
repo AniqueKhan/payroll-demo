@@ -218,3 +218,37 @@ pre.code { background: var(--grey-soft); padding: 12px 14px; border-radius: 8px;
   .fields label, .fields label.note { flex: 1 1 100%; }
   input[type=text], input[type=number], select { width: 100%; }
 }
+
+/* How it works (landing page) */
+a.btn { display: inline-block; text-decoration: none; }
+a.btn:hover { color: #fff; }
+a.btn-secondary:hover { color: var(--accent-dark); }
+.hero { background: linear-gradient(135deg, var(--accent-soft), #fff 70%); border: 1px solid #cfe5ee; border-radius: var(--radius); padding: 30px 28px; margin-bottom: 20px; }
+.hero h1 { font-size: 1.85rem; max-width: 26ch; }
+.hero .lead { color: var(--ink); font-size: 1.02rem; margin-top: 8px; }
+.eyebrow { margin: 0 0 6px; color: var(--accent-dark); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; }
+.hero-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+.problem { border-left: 6px solid var(--accent); }
+.problem p { margin: 0; max-width: 80ch; }
+.section-title { margin: 8px 0 12px; }
+.steps { list-style: none; margin: 0 0 20px; padding: 0; display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.step { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 18px 16px; display: flex; flex-direction: column; gap: 6px; }
+.step p { margin: 0; color: var(--muted); flex: 1; }
+.step a { font-weight: 500; font-size: .9rem; }
+.step-num { width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+.try-list { margin: 0 0 10px; padding-left: 20px; display: grid; gap: 6px; }
+.facts { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.glossary { margin: 0; display: grid; gap: 12px 24px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.glossary div { display: grid; gap: 2px; }
+.glossary dt { font-weight: 600; }
+.glossary dd { margin: 0; color: var(--muted); }
+.closing { background: var(--ink); color: #e9eef3; border-color: var(--ink); }
+.closing h2 { color: #fff; }
+.closing p { max-width: 80ch; }
+.closing .btn { background: #fff; color: var(--ink); border-color: #fff; }
+.closing .btn:hover { background: var(--accent-soft); color: var(--ink); }
+.new-here { margin: 8px 0 0; font-size: .9rem; }
+@media (max-width: 640px) {
+  .hero { padding: 22px 18px; }
+  .hero h1 { font-size: 1.45rem; }
+}
